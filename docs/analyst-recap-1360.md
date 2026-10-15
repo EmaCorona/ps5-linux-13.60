@@ -262,3 +262,61 @@ printed u64 hex as a big-endian byte string. The real memory bytes match.)
 kernel** (same build, slide `-0x590000`). The derived values in `off_1360.c` keep the
 same relative offsets, so they remain valid. A slide test only works on image-pointing
 values; that is now recorded so it is not repeated.
+
+---
+
+# Priority 1.3 — remaining data symbols from the dump
+
+Method: string literals in `.data` -> RIP-relative xrefs (capstone, from the same
+pass as before) -> enclosing function via the nearest preceding `call` target.
+Console-validated values are read with the hardened probe (`KTEXT:` namespace only).
+
+## Derived AND validated
+
+| field | 13.60 value | evidence | console check |
+| --- | --- | --- | --- |
+| `G_VBIOS` | **`0x3DDB9F0`** | bytes `55 aa 6c e9 ff 01 00 00` = ROM signature `0x55AA` + size `0x6c*512`; the surrounding region carries the AMD VBIOS strings `113-AMDOBP-006`, `PCI_EXPRESS`, `OBP Generic VBIOS`, `(C) 1988-2010, Advanced Micro Devices, Inc.`, `ATOMBIOSBK-AMD VER016.002.000.006.000000`, `AMD ATOMBIOS`, `PCIR` | `KTEXT:0x3DDB9F0` -> raw `000001ffe96caa55`, **identical to the dump** |
+
+13.20 was `0x3DB39F0`, so drift `+0x28000`; the low `9F0` is preserved.
+
+## Candidates, NOT committed (no reliable way to pin them yet)
+
+**MP3.** 13.20 anchors: `FUN_MP3_INVOKE = 0xA0A9D0`, `FUN_MP3_INITIALIZE = 0xA0B3E0`
+(0x9A0 apart, invoke first). In 13.60 the whole mp3 cluster sits at
+`0xA13E00..0xA17000`. Functions that reference mp3 log-name literals:
+
+```
+0xa13eeb  <- "mp3_open_session_for_ta_tmr"      0xa14130  <- "mp3_bl/tee command timed out"
+0xa145b0  <- "mp3_process_exit_handler"         0xa14abc  <- "mp3_enable -> false"
+0xa1510d  <- "mp3_bl/tee command timed out"     0xa15180  <- same
+0xa15f87  <- "mp3_vslock failed! va=%lx size=%lx"
+0xa16438 / 0xa1644c / 0xa16620 <- "mp3_ioctl_open_session"
+0xa16f2a  <- "mp3_ioctl_get_debug_token"
+```
+No pair in that list is 0x9A0 apart, and the name literals are plain C strings (no
+adjacent pointer table), so `INVOKE`/`INITIALIZE` cannot be assigned by evidence
+alone. Needed: the 13.20 binary (or a symbol source) to diff, or the driver's
+method table.
+
+**`FUN_TRANSMITTER_CONTROL`.** 13.20 is `0xC01ED0`, but the only code referencing a
+`transmitter_control` literal sits at `ktext+0x69EC00` / `ktext+0x6A00FA` — an order of
+magnitude away. Either the 13.20 value names a different site, or the 13.60 function
+does not use that literal. Left at 0.
+
+**Still 0, and also 0 in the 13.20 table** (so not regressions, and no derivation
+method yet): `IOMMU_SOFTC`, `DATA_BASE_GVMSPACE`, `FUN_SMP_NO_RENDEVOUS_BARRIER`,
+`KERNEL_UART_OVERRIDE`, `PS5_WIFI_FW_OFFSET`, `PS5_WIFI_FW_SIZE`.
+For the record, `firmware.c` needs the WiFi pair or it bails out by design
+(`if (PS5_WIFI_FW_OFFSET == 0 || PS5_WIFI_FW_SIZE == 0) return -1`).
+
+## Drift table 13.20 -> 13.60 (for estimating, not for committing)
+
+| anchor | 13.20 | 13.60 | drift |
+| --- | --- | --- | --- |
+| `GAD_WRMSR_RET` | 0x254FF4 | 0x255034 | +0x40 |
+| `KERNEL_CFI_CHECK` | 0x44E5D0 | 0x44F8C0 | +0x12F0 |
+| `FUN_SMP_RENDEZVOUS` | 0xAF94E0 | 0xB04440 | +0xAF60 |
+| `KERNEL_SYM_HV_MP_STARTUP_CALL` | 0xC0A310 | 0xC16EE0 | +0xCBD0 |
+| `G_VBIOS` | 0x3DB39F0 | 0x3DDB9F0 | +0x28000 |
+
+Drift grows with offset and is not linear, so interpolation is only a hint.

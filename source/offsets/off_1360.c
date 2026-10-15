@@ -58,7 +58,7 @@ offset_list off_1360 = {
     .KERNEL_CFI_CHECK = 0x44F8C0, /* derived from 13.60 kernel dump */
     /* TODO(13.60): display bring-up symbols not yet located (needed for the
      * Linux boot path, not for the escape). */
-    .G_VBIOS = 0,
+    .G_VBIOS = 0x3DDB9F0, /* VBIOS ROM (0x55AA sig, AMD ATOMBIOS) — derived from the 13.60 dump and validated on-console */
     .FUN_TRANSMITTER_CONTROL = 0,
     .FUN_MP3_INITIALIZE = 0,
     .FUN_MP3_INVOKE = 0,
