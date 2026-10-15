@@ -102,3 +102,19 @@ may be touched on the console, by any path, ever.
 
 Validation itself is still owed: it needs the console back on (exploit chain
 re-run) and then a run of the hardened tool.
+
+
+---
+
+## Correction (2026-10-16, round 2)
+
+The HV-carveout result above (`0x062800000` -> `0xFF`) was read as "the HV is protected like
+`.text`". The project's own research (`NotSoTypicalGamer/HV-Bypass-13.60`, `kernel/VMCB_PA.md` and
+`kernel/HV_RESEARCH.md`) is the better explanation: on firmware **8.00+ the hypervisor moved off the
+`0x628xxxxx` carve-out**, and a scan of the 13.60 kernel `.data` finds **zero** references into
+`0x62800000..0x62B00000`. So that address is likely *reserved/unmapped* and the `0xFF` is not a
+permission refusal. The `.text` conclusion is unchanged and independently supported: the same
+recipe reads a kernel `.data` physical byte-identically while `.text` returns `0xFF`.
+
+The three hypervisor PAs (`HV_VMMCALL_HANDLER_PA`, `HV_CODE_CAVE_PA`, `HV_HANDLE_VMEXIT_PA`) are
+therefore **out of scope for any kernel capture** on 8.00+; they need the NPT-alias HV dump route.

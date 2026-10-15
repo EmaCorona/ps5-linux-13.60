@@ -119,3 +119,83 @@ re-run before the validation run can happen.
 `69cbf99` -> `41449dc` -> `0473328` -> `b43775e` -> `3cee9d1` -> `440afad` ->
 `7a16068` -> `91cf2f8` (offsets from the dump) -> `17c1712` (probe hardened +
 incident documented; this recap).
+
+---
+
+# Round 2 — following the analyst's operational instructions
+
+## Priority 0 — safety rules: DONE
+
+`tools/pl5-verify-1360.c` was rewritten and rebuilt (`bin/pl5-verify-1360.elf`) with:
+
+1. **hard blacklist** — any ktext-relative offset `< 0xCC0000` is refused before any read
+   (`.text` is exactly 0xCC0000; below that is either HV-relative or misclassified);
+2. **mandatory namespace** — every spec is `NS:OFFSET` with `NS` in
+   `{KTEXT,HV,DATA,PHYS}`; a non-`KTEXT` namespace is refused outright, so namespaces
+   can never be mixed (that is what powered the console off with `0x83028`/`0x82A60`);
+3. **dry-run by default** — prints namespace, base, offset, resulting VA and the expected
+   section from the dump layout; a read needs an explicit `--commit`;
+4. **one spec per invocation** — a second spec is refused.
+
+Exit codes: 2 usage, 3 non-KTEXT namespace, 4 offset in `.text`.
+
+## Priority 2 — hypervisor values: out of scope for the kernel dump
+
+Checked, then stopped (per instruction 2.1):
+
+* `EchoStretch/Byepervisor-Reborn` — branch `main` only, no PRs, no issues; `include/offsets/13_60.h`
+  has no HV PA values (same 21 gadgets + 14 symbols we already use).
+* `PS5Dev/Byepervisor-Reborn` — `include/offsets/13_60.h` is byte-equivalent to the above
+  (`HV_SYM_HEAP_BASE`/`HV_SYM_PCPUS` only, both HV-relative); no HV PA table.
+* `NotSoTypicalGamer/HV-Bypass-13.60` (the project's own research) settles it:
+  * `VMCB_PA.md` — **"not public, and not recoverable offline from `kdata_1360.bin`"**. Three independent
+    negative scans: the 13.60 kernel `.data` holds **zero** u64 references into `0x62800000..0x62B00000`;
+    no VMCB structure anywhere in the dump; only log-format strings and CPUID `0x8000000A` names.
+  * `HV_VMCB_PA.md` — no genuine `VMRUN` instruction in the capture (every `0F 01 D8` is a
+    word-boundary false positive inside 16-bit tables), no SVM MSR constants, no `movabs`
+    physical-address literals.
+  * The fixed HV PAs that are public all belong to **<= 7.61** (`HV_CODE_CAVE_PA 0x62806F00`,
+    `HV_HANDLE_VMEXIT_PA 0x6283D800` for 7.0x–7.61, `HV_PML4_07xx 0x6282E1A0`,
+    `HV_ENTRY_07xx 0x6282E1B8`).
+  * On **8.00+ the HV moved off the `0x628xxxxx` carve-out**, so the old anchors do not apply.
+
+**This also corrects one of our own earlier conclusions.** We probed the HV at
+`0x062800000` (anchor `"hvcGF"` @ +0x1ba10) through the GPU and got `0xFF`, and read that as
+"the HV carve-out is protected". The analyst's evidence is the better explanation: on 8.00+ that
+address is simply **no longer the HV**, so `0xFF` is *reserved/unmapped*, not a refusal of a
+protected region. The `.text` `0xFF` result is unaffected (there the same recipe reads a `.data`
+physical byte-identically, which is what proves a below-page-table protection).
+
+**Recovery route for the three PAs** (analyst's plan, not runnable offline): dump the HV code through
+the Sonic-Iso root-0 NPT alias, disassemble for the moved anchors (the HV stores absolute PAs),
+then confirm `vcb->vmcb` at `vCPU+0x08` via the DMAP; the IOMMU COMPLETION_WAIT (opcode `0x1`, not
+`0x05`) then writes 0 to `VMCB+0x90`.
+
+**Open contradiction to flag:** `HV-Bypass-13.60/kernel/13.60_OFFSET_HUNT.md` reports that the
+`vmmcall` opcode (`0f 01 d9`) appears **0 times** in its `ktext_0.bin`, while the verified community
+dump we use has the whole hypercall-wrapper family (`mov eax,N; vmmcall`) at `0xC16A10..0xC16B7E`
+— immediately before `KERNEL_SYM_HV_MP_STARTUP_CALL = 0xC16EE0`, which matches the known offsets
+table. Either `ktext_0.bin` is a different artifact (truncated / not the kernel text), or the two
+captures differ. Worth resolving before either is quoted.
+
+## Priority 1 — data-set validation: BLOCKED, console is off
+
+The run needs the console in the exploit state. It is off since the incident in §6 (this recap's
+previous section): my probe read `0x2D39000`, which is inside `.text`.
+
+**Ready to run the moment the console is back** (no repo change needed, no new payload):
+
+```
+# dry run first (no read)
+bin/pl5-verify-1360.elf KTEXT:0x3B48FF8
+# then, one offset per invocation
+bin/pl5-verify-1360.elf KTEXT:0x3B48FF8 --commit
+```
+
+Candidate data offsets for the delta test (all >= 0xCC0000, all with a known dump value):
+`0x3B48FF8` (`PMAP_STORE`), `0x3BB4300` (`IDT`), `0x3BB6FE0` (`COMMON_TSS`), `0x3B49294`
+(`DMPML4I`), `0x3B49298` (`DMPDPI`), `0x3B47E4C` (`PML4PML4I`), `0x3913B0` (ACPI hook site).
+Expected: every `delta_i = console_i - dump_i` equals the same KASLR slide.
+
+Console state at the time of writing: **OFF** (ping fail, 9021/9120 closed). Needs a power-cycle
+and an exploit-chain re-run; nothing else is pending on my side.
