@@ -320,3 +320,55 @@ For the record, `firmware.c` needs the WiFi pair or it bails out by design
 | `G_VBIOS` | 0x3DB39F0 | 0x3DDB9F0 | +0x28000 |
 
 Drift grows with offset and is not linear, so interpolation is only a hint.
+
+---
+
+# P4.0 — death signature (documentary evidence; physical observation still missing)
+
+Direction: P4 before P3. Nothing else runs until the signature is pinned.
+
+## What "the death" actually is, from our own run records
+
+Taken from `docs/1360-port-status.md` (recorded at the time of each run; the console's
+`/data/plinux5.log` is truncated by `notify()` on every run, so the historical log is gone).
+
+| run | what was armed | observed outcome | last log line |
+| --- | --- | --- | --- |
+| `PL5_DIAG=1` | escape + **armed khook** | console becomes unreachable **~5 s after arming**, **before** standby is requested | the `sceSystemStateMgrEnterStandby()` line is **absent** |
+| `PL5_DIAG=5` | escape only, **no khook** | standby + resume **work**; payload continues and exits cleanly | `[W0] pre-suspend` present |
+| `PL5_DIAG=4` (first) | escape armed | powered off by itself; no `[W0]`, no dump | — (root cause found: HDMI Device Link **ON** + USB power not *Always*; CEC powered it off. Operator fixed both settings.) |
+| `PL5_DIAG=4` (after the fix) | escape armed | entered rest mode, **resumed ~5 min later**, helper survived | log **never advanced past "Going to rest mode"** — no `[W0]`, no `[W]`, no `[X]`, no dump |
+| Byepervisor-Reborn reference build | reference khook | rest mode entered; operator reports power-off afterwards | — |
+
+## The consequence that re-frames P4
+
+Our evidence says the failure is **at arm time, not across suspend**: with the khook armed the
+console dies ~5 s after arming, *before* `sceSystemStateMgrEnterStandby()` is ever called, while
+escape-only survives standby + resume end to end.
+
+That is precisely the case the plan calls out for **P4.1 Test A** ("installation only, no suspend").
+So Test A is **already negative from the historical runs**, and the open question is narrower than
+"DR7 across S3":
+
+1. does merely **arming** kill it, or does the **#DB self-test** (the hook fires a `#DB` on
+   `sys_getuid`) kill it because some other payload calls `sys_getuid` during those 5 s?
+2. if arming alone kills it, which part is fatal: the `.text` write, the `DR7` write, or the
+   `IDT`/IST-6 path?
+3. `PL5_DIAG=5`'s clean standby+resume shows the S3 path itself is fine on this console.
+
+## Evidence still missing (blocks the analyst's signature table)
+
+The plan distinguishes the signature: clean power-off (LED off, no panic) vs hang (LED on, black
+screen) vs visible panic on UART vs reset loop. We have **none of those physical observations** —
+only "the console stopped answering on the network", which does not distinguish them.
+
+* no UART/serial capture is available on this console through the current chain;
+* `ps5upload`'s `klog` endpoint cannot help: the console is already off by the time it could be read;
+* the payload log persists up to the moment of death (it ends at the arm), which is consistent with
+  a sudden loss, but it cannot tell a clean power-off from a hang.
+
+**Asked of the operator:** what does the console physically do at the moment of death
+(LED state, screen, sound, whether it restarts by itself)? That single observation picks the row of
+the signature table and therefore the intervention (arm post-resume vs IST-6 mapping vs payload fix).
+
+Until that is answered, P4 does not advance: no code change, no `off_1360.c` edit, no combined test.
