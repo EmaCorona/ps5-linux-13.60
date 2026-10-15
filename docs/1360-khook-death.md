@@ -187,3 +187,41 @@ install entirely. The run therefore measured a rest-mode cycle with **nothing ar
 
 Fix, so diagnostics cannot inherit state: for `PL5_DIAG >= 10` the adopt shortcut is bypassed and
 the escape is forced. Re-run `diag18` on a fresh snapshot for a valid measurement.
+
+### P4.4b — arm-late MEASURED: the console reaches standby and survives the cycle
+
+Run 2026-10-16 01:25, console `13.60.0007`. The adopted armed mark was present
+(`0x4b484f4f4b454401`) and deliberately ignored, so the escape ran for real:
+
+```text
+13.60: P4 diag=18: ignoring the adopted armed mark; forcing the escape.
+13.60: [A] payload staged @ cave+0x1000, hv_base=0x62800000 cr3=0x17c84000 redirect=1
+13.60: P4 diag18: staging only (gate+IST deferred to arm-late)
+13.60: [D] kh_install rc=0
+13.60: [E] core=15 ktext=0xffffffff93e30000 scratch=0xffffffff96b69000 tgt=0xffffffff94a46ee0 idt=0xffffffff979e4300 tss=0xffffffff979e6fe0
+13.60: P4 diag18: self-test trigger deferred to arm-late
+Finished preparation. Going to rest mode in 5 seconds.
+13.60: arm-late: kh_arm rc=0 (gate+IST written now)
+```
+
+What happened next:
+
+| | armed at install (old) | **armed late (diag18)** |
+| --- | --- | --- |
+| reaches the standby request | **no** — dies ~1 s after install | **yes** |
+| enters rest mode | — | **yes** (console unreachable while asleep) |
+| survives the resume | — | **yes** (ping OK at 01:26:37 after the operator woke it) |
+
+Two observations worth separating:
+
+* **The early death is gone.** Staging everything without the gate/IST is harmless (`diag11`) and
+  arming immediately before the standby request is enough — the console asked for standby and
+  entered rest mode, which the install-time arm never managed.
+* **The loader and the helper are gone after the wake**, but so they were in the *previous* cycle in
+  which **nothing** was armed, so their loss is not attributable to the hijack; it is how this rest
+  mode cycle treats payload processes.
+
+Not yet confirmed: whether `post_resume()` actually ran, because `/data/plinux5.log` needs the
+helper to be read. The file is on disk and survives the power state, so the marker
+(`P4 diag18: post-resume reached; dump SKIPPED on purpose.`) can still be checked once the chain is
+re-established — that is the next reading, before any new payload run.
