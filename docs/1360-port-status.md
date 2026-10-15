@@ -147,3 +147,92 @@ display bring-up symbols (`G_VBIOS`, `FUN_TRANSMITTER_CONTROL`,
 /home/emacorona/src/ps5-sdk-dl/sdk/ps5-payload-sdk        # v0.44 prebuilt
 /home/emacorona/src/ps5-sdk-dl/plabs5/pLabs5-SDK-main     # for LLVM_CONFIG
 ```
+
+---
+
+## Update — 22:36 — where the blocker actually is
+
+New tooling added with this update:
+
+* `tools/pl5-offsets.c` — `plog()`: every important line is appended to
+  `/data/pl5-offsets.log` on the console. Payload stdout goes to the (already
+  closed) elfldr socket, so without this there is no post-mortem.
+* `tools/pl5-escape-probe.c` — minimal payload that only reports the `.text`
+  leaf bits, runs the XOTEXT/RW clear and reports again. No rest mode.
+* `hv_defeat_1360.c` — logs the `.text` leaf bits right after the escape (`[X]`).
+
+### Findings
+
+1. **The loader is the right one.** `GET http://<ps5>:9021/` answers
+   `[elfldr.elf] Error reading HTTP payload`: port 9021 is the canonical
+   `ps5-payload-dev/elfldr` (which *by design* resumes after rest mode). The
+   "wrong loader" hypothesis is refuted. Bonus: elfldr's HTTP interface returns
+   the payload's **stdout**, which is how the diagnostics below were captured.
+
+2. **Suspend, resume and payload survival work.** `PL5_DIAG=0` (no escape, no
+   hook armed) → the console entered rest mode, resumed and stayed up, and the
+   payload continued (`[W0]` then "post-resume called but vector was never
+   armed"). So the S3 mechanism and this process are fine.
+
+3. **A dump exists but was empty of `.text`.** `/data/pl5-1360/` +
+   `/data/pl5-1360.zip` (88 MB) were produced, but
+   `ktext_dump=0x0  hv_dump=0x0  resolved=6 hint=3 missing=55`.
+
+4. **Why: the escape had never run.** The gate diagnostic reads:
+
+   ```
+   init_ok=1 cr3=0x156bf000 dmap=0xffffeb7700000000 leaf=1
+   sentinel=0x400000010ea0101 present=1 xotext=1 nx=0 ps=0 -> unavailable
+   ```
+
+   The `.text` leaf PTE still had bit 58 (XOTEXT) set. The cave carried a
+   `KHOOKED.` mark, and our payload *adopted* that state and skipped the escape
+   — the mark was misleading (stale state from an earlier payload in that boot).
+
+5. **The escape itself works.** Run via elfldr HTTP (no rest mode):
+
+   ```
+   BEFORE pde xotext=0 rw=1 ps=0
+   BEFORE pte 0x400000010ea0101 xotext=1 rw=0
+   escape done pde_hits=3264 pte_hits=3264
+   AFTER  pte 0x10ea0103 xotext=0 rw=1
+   PROC   pte 0x10ea0103 xotext=0 rw=1
+   ```
+
+   Same loop as the payload, 3264 PDEs and 3264 PTEs touched, XOTEXT cleared,
+   RW set, and the kernel pmap and the process pmap agree (shared tables).
+
+6. **Reading `.text` through its kernel VA is what kills the console.** After
+   clearing the PTE (so the gate passed) plus one manual rest-mode cycle, the
+   dumper ran and the **console powered off during the run**. The read still
+   went through the XOTEXT-protected kernel VA; a rest-mode cycle did not make
+   that path safe (stale TLB entry for a global kernel mapping).
+
+### Diagnosis and planned fix
+
+The `.text` read must not go through the kernel VA. It should go through the
+**direct map**: translate the VA to a physical address with the page tables —
+which the tool already does for every page-table read — and then read the
+physical frame through the dmap. That path is known-good (all page-table reads
+already use it) and it removes the rest-mode prerequisite entirely.
+
+Planned changes (not yet implemented — awaiting instructions):
+
+* `tools/pl5-offsets.c`: add `va_to_pa()` (4 KB and huge-page leaf handling),
+  `kread_safe()` and `dump_region_safe()`; use them for the `.text` dump, for the
+  `PL5_MODE_SIG` verification reads and for `scan_kernel()`; make the gate
+  "can we translate ktext?" instead of "is bit 58 clear?".
+* `hv_defeat_1360.c`: adopt an already-armed cave state **only if `.text` is
+  actually open** (bit 58 clear); otherwise run the escape. This is the bug that
+  made every dump come out with `ktext_dump=0`.
+* The HV VMMCALL handler value still needs either `break_hv` (NPT off) or a dmap
+  read of the HV carveout — to be evaluated.
+
+### The four values still missing for phase B (unchanged)
+
+`HV_VMMCALL_HANDLER_PA`, `KERNEL_CFI_CHECK`, `FUN_SMP_RENDEZVOUS`, the
+hypercall-4 wrapper — all four still unknown for 13.60. Note the offsets tool
+also reports HV `HEAP_BASE`/`PCPUS` only as `hv` (copied from the table), and
+`DMPML4I`/`DMPDPI` are missing, so `kdldmap()` in the tool fell back to
+`0xffff800000000000` while the escaped payload computes
+`0xffffeb7700000000` — another thing to reconcile before trusting HV offsets.

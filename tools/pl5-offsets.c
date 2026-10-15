@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +51,25 @@
 #define HV_DUMP_MAX 0x1800000 /* 24 MiB covers the whole HV reservation */
 
 #define DUMP_CHUNK 0x10000
+
+/* Persistent diagnostics: the payload's stdout goes to the (already closed)
+ * elfldr socket, so every important line is also appended to a file on the
+ * console. Read it back with the ps5upload engine (read-preview). */
+static void wr_all(int fd, const void *buf, size_t n);
+static void plog(const char *fmt, ...) {
+  char b[1024];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(b, sizeof(b), fmt, ap);
+  va_end(ap);
+  int fd = open(PL5_OUT_ROOT "/pl5-offsets.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+  if (fd >= 0) {
+    wr_all(fd, b, strlen(b));
+    close(fd);
+  }
+  printf("%s", b);
+  fflush(stdout);
+}
 
 enum {
   HOW_MISSING = 0,
@@ -454,17 +474,30 @@ int pl5_dump_offsets(void) {
    * .text dump is simply skipped. On the supported path this payload has just
    * come back from rest mode, where the Byepervisor escape left XOTEXT cleared
    * on the .text PTEs (see text_readable()). */
-  g_text_ok = (init_paging() == 0) && text_readable();
-  printf("[pl5-offsets] kernel text %s (cr3=%#llx dmap=%#llx)\n",
-         g_text_ok ? "readable" : "unavailable",
-         (unsigned long long)g_cr3, (unsigned long long)g_dmap);
-  fflush(stdout);
+  {
+    int init_ok = (init_paging() == 0);
+    int leaf = 0;
+    uint64_t entry = 0;
+    if (init_ok)
+      entry = va_leaf_entry(ktext, &leaf);
+    g_text_ok = init_ok && text_readable();
+    plog("[pl5-offsets] fw=0x%04x ktext=%#llx kdata=%#llx\n", fwv,
+         (unsigned long long)ktext,
+         (unsigned long long)KERNEL_ADDRESS_DATA_BASE);
+    plog("[pl5-offsets] init_ok=%d cr3=%#llx dmap=%#llx leaf=%d "
+         "sentinel=%#llx present=0x%llx xotext=%llu nx=%llu ps=%llu -> %s\n",
+         init_ok, (unsigned long long)g_cr3, (unsigned long long)g_dmap, leaf,
+         (unsigned long long)entry, (unsigned long long)(entry & 1),
+         (unsigned long long)((entry >> 58) & 1),
+         (unsigned long long)((entry >> 63) & 1),
+         (unsigned long long)((entry >> 7) & 1),
+         g_text_ok ? "READABLE" : "unavailable");
+  }
 
   uint64_t got_text = 0, got_data = 0, got_hv = 0;
   if (g_text_ok)
     dump_region(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
-  printf("[pl5-offsets] kernel text dump: 0x%llx bytes\n",
-         (unsigned long long)got_text);
+  plog("[pl5-offsets] text_dump=0x%llx bytes\n", (unsigned long long)got_text);
   uint64_t kdata = KERNEL_ADDRESS_DATA_BASE;
   dump_region(p_data, kdata, PL5_KERNEL_DATA_SIZE, &got_data);
   printf("[pl5-offsets] kernel data dump: 0x%llx bytes\n",

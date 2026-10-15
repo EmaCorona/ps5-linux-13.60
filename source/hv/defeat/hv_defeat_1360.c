@@ -826,6 +826,21 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
    * exact fault probe3 hit on 13.20. Clear it there too. */
   map_payload_executable(get_proc_pmap());
 
+  /* Report the .text leaf bits right after the escape, so a failed XOTEXT clear
+   * is visible in the log even if the post-resume dump never runs. */
+  {
+    uint64_t e, a;
+    a = find_pde(kernel_pmap, ktext, &e);
+    notify("13.60: [X] ktext pde@%#lx=%#lx xotext=%lu rw=%lu ps=%lu\n",
+           (unsigned long)a, (unsigned long)e,
+           (unsigned long)PDE_FIELD(e, XOTEXT), (unsigned long)PDE_FIELD(e, RW),
+           (unsigned long)PDE_FIELD(e, PS));
+    a = find_pte(kernel_pmap, ktext, &e);
+    notify("13.60: [X] ktext pte@%#lx=%#lx xotext=%lu rw=%lu\n",
+           (unsigned long)a, (unsigned long)e,
+           (unsigned long)PDE_FIELD(e, XOTEXT), (unsigned long)PDE_FIELD(e, RW));
+  }
+
 #if PL5_DIAG >= 4
   notify("13.60: payload-exec NX AFTER:\n");
   log_payload_nx(kernel_pmap, "kern");
