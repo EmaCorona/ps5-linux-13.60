@@ -1,5 +1,10 @@
 # ps5-linux
 
+> **Reference copy.** This is the upstream [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader)
+> README, kept verbatim so the installation flow we build on stays quotable. Its relative links and
+> image references (for example `logo.webp`) point at the upstream repository, not at this one, and
+> its instructions describe the 3.00–7.61 escape rather than the high-firmware one used here.
+
 **ps5-linux** leverages patched HV vulnerabilities to transform your **PS5 Phat and Slim** console running **3.00-7.61 firmwares** into a highly capable Linux PC, unlocking its full hardware potential for desktop use. Powered by 8 CPU cores (16 threads) at **3.5 GHz** and a GPU at **2.23 GHz**, it provides enough performance to run Steam games and various emulators with impressive fluidity.
 
 Features:
