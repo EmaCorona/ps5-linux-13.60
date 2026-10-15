@@ -443,3 +443,51 @@ The practical routes that remain:
    **armed khook across suspend**, which is separately fatal on this console
    (the diag=1 result); that blocker is independent of the offsets and deserves
    its own investigation (minimal chain, other payloads owning DR7/IDT/TSS).
+
+---
+
+## Update — 23:52 — the HV carveout is refused too; both protected regions read 0xFF
+
+One run, same recipe, fresh victims:
+
+```
+VALIDATE retarget -> staging physical           -> RETARGET-OK
+DATA     kva=0xffffffffd0d71000 -> cpu[0]=0xffffffff81530282
+         dma rc=0 gpu[0]=0xffffffff81530282     -> SYSRAM-READ-OK
+TEXT     kva=0xffffffffd00b0000 (pa 0x100b0000) -> 4096 bytes of 0xFF
+HV       HV_BASE=0x062800000, retarget -> 0x440000628004f7
+         first page 4096 bytes                   -> all 0xFF
+         anchor page at +0x1ba10 ("hvcGF")       -> all 0xFF, no anchor
+```
+
+So the GPU read path distinguishes three kinds of memory:
+
+| region | CPU read | GPU read (retarget + bit50) |
+|---|---|---|
+| ordinary kernel `.data` (`kva=0xffffffffd0d71000`) | works | **works, bytes identical** |
+| kernel `.text` | faults / panics | **all-ones** |
+| HV reservation (`0x062800000`) | not mapped in the dmap | **all-ones** |
+
+Both protected regions are therefore protected **below** the page-table
+permissions, and the protection is applied to *any* reader, not just the CPU.
+That closes live extraction on this console: neither the kernel `.text` offsets
+nor the HV VMMCALL handler can be read out of a running system by either path.
+
+### Consequences
+
+* the four values cannot be obtained from this console by reading memory;
+* the reference recipe that reads the HV "through the GPU" does not transfer to
+  this console/firmware (our result: 0xFF), so that document's claim should not be
+  relied on here;
+* an offline route needs a 13.60 kernel/HV image, and dumping it locally is
+  blocked by the same protection (the carveout reads 0xFF) -- it would have to
+  come from an external firmware source;
+* the second, independent blocker remains: an **armed khook across suspend is
+  fatal** on this console, so even with the offsets the phase-B takeover cannot
+  work as designed today.
+
+The GPU-DMA tooling (`tools/pl5-gpu-read.c`) is nevertheless a fully working
+primitive on this console: retarget plus `PACKET3_DMA_DATA` copies any
+non-protected physical to a CPU-readable buffer, verified against both a known
+pattern and a `.data` page. It is the right tool to re-run if a future firmware
+protects less, or to read `.data`-resident values.

