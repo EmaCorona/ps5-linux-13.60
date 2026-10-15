@@ -9,6 +9,11 @@
 #include <signal.h>
 #include <unistd.h>
 
+/* Official standby request (as used by Byepervisor-Reborn). The legacy
+ * event-flag path (enter_rest_mode) does not flush the TLB, so a post-resume
+ * read of kernel .text still hits a stale execute-only entry and panics. */
+int sceSystemStateMgrEnterStandby(void);
+
 static void diag_sig(int sig, siginfo_t *si, void *ctx) {
   (void)ctx;
   notify("!! signal %d at %p (code %d).\n", sig, si ? si->si_addr : 0,
@@ -94,7 +99,14 @@ int main(void) {
 #endif
 
   sleep(5);
-  enter_rest_mode();
+  if (fw >= 0x0800) {
+    /* High-FW: use the real standby path (Byepervisor design) so the TLB is
+     * actually invalidated across the suspend/resume cycle. */
+    notify("high-FW: sceSystemStateMgrEnterStandby()...\n");
+    sceSystemStateMgrEnterStandby();
+  } else {
+    enter_rest_mode();
+  }
 
   /* On 13.20/13.60 the console comes back from rest mode with NPT disabled;
    * finish the takeover from here (runs on the BSP once we wake). */

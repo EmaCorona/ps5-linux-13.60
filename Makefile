@@ -37,7 +37,7 @@ PL5_HV_STOP ?= 0
 CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
 # pLabs5 toolchain override (see PORTING.md). Pass LLVM_CONFIG in the environment:
 #   export LLVM_CONFIG=/nyaa/coding/public/PS5/dRPC5/pLabs5-SDK/tools/nixos/llvm-config
-LDFLAGS :=
+LDFLAGS := -lSceSystemService
 
 SC_0607_H := source/shellcode/0607/shellcode_0607.h
 SC_HV_H := source/shellcode/hv/shellcode_hv.h
