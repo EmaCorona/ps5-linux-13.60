@@ -517,7 +517,11 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
          sceKernelGetCurrentCpu(), (unsigned long)ktext, (unsigned long)scratch,
          (unsigned long)hook.hook_kaddr, (unsigned long)hook.idt_base,
          (unsigned long)hook.tss_base);
+#if PL5_DIAG == 16
+  notify("13.60: P4 diag16: kh_trigger SKIPPED (gate+IST swapped, never exercised)\n");
+#else
   kh_trigger(&hook);
+#endif
   notify("13.60: [F] triggered\n");
 
   g_oracle = oracle;

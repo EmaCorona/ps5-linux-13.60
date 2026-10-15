@@ -467,3 +467,68 @@ seconds instead of a rest-mode cycle and the CEC variable is gone entirely.
 `/data/plinux5.log` is on disk and survives the power-off, so after the power cycle it should
 still hold the **last line the diag15 run reached before dying** — the exact "last line before
 death" the signature table wants. Read it before any new payload run.
+
+---
+
+# P4.1 — diag16 result and the mechanism (2026-10-16 01:01–01:03)
+
+## diag15 log, read on the next boot (last line before death)
+
+```
+[000027] [D] kh_install rc=0
+[000028] [E] core=15 ktext=0xffffffff9de60000 scratch=0xffffffffa0b99000 tgt=0xffffffff9ea76ee0 idt=0xffffffffa1a14300 tss=0xffffffffa1a16fe0
+[000029] [F] triggered                 <- the #DB chain RAN and returned
+[000030] hypervisor escape armed (diag=15). Rest mode -> payload.
+[000032] P4 diag=15 — install done; heartbeat, standby SKIPPED
+[000033] [hb 00]                       <- LAST LINE, then the console powered off
+```
+
+So the chain executes *successfully* first (`[F]`), the console lives ~1 s, and only then powers off.
+**The death is deferred, not synchronous with the chain.**
+
+## diag16 (full install, `kh_trigger()` never called)
+
+```
+[D] kh_install rc=0
+[E] core=15 ...
+P4 diag16: kh_trigger SKIPPED (gate+IST swapped, never exercised)
+[hb 00]                                <- output ends here
+```
+
+Outcome, measured after the run: **ping OK, but 9021 AND 9120 are closed** — the HTTP loader
+(`elfldr`) and the `ps5upload` helper are both gone (`helper_not_ava1`), while the console itself
+is alive. Our own payload process also did not survive past `[hb 00]`.
+
+## The mechanism this points to
+
+The khook replaces, **globally**:
+
+* the **#DB IDT gate** (vector 1) with our ROP chain, and
+* the **TSS IST1 slot** with the arm chain,
+
+and, when armed, the chain resumes through `resumectx`/`DBREG_RESUME` with a context built for
+**our own** trigger. After install, a #DB that belongs to *any other* process or thread is
+therefore dispatched into our chain and resumed against a foreign context.
+
+That explains every observation in one line:
+
+| run | hijack live? | #DB triggered by us? | result |
+| --- | --- | --- | --- |
+| `diag11` (gate write skipped) | **no** | — | only our process dies (`SIGTRAP`); console + loaders fine |
+| `diag16` (gate written, never triggered) | **yes** | no | unrelated victims die — `elfldr` and the helper — console survives |
+| `diag15` (gate written, triggered) | **yes** | yes | a victim critical enough that the console performs an **orderly power-off**, ~1 s after install |
+
+**Conclusion: the armed khook is fatal here not because of DR7 and not because of suspend, but
+because the #DB hijack is global and hands foreign traps to a chain that assumes ours.** The
+analyst's original suspicion — other payloads owning DR7/IDT/TSS — is confirmed in a sharper form:
+it is the *other processes'* exceptions, not their registers, that get captured.
+
+## Where this leaves P4
+
+* `off_1360.c` untouched, as instructed.
+* The next step is no longer bisection but a **scoped** design: the chain must verify the trap is
+  ours (e.g. compare the interrupted RIP / the trap frame against the expected trigger, or keep
+  the original gate for foreign #DBs and only divert our own), so a foreign #DB never enters the
+  chain. That is a P4.4-class change, and it is now evidence-driven rather than speculative.
+* The console currently has **no loader** (`9021` closed) and **no helper**: the exploit chain has
+  to be re-established before anything else runs.
