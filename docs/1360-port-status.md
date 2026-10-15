@@ -327,3 +327,68 @@ set**: the leaves that appear are ours, which yields their GPU VAs and leaf
 addresses. Only after that is the retarget (`new = (old & ~0x0000FFFFFFFFE000) |
 (target_pa & 0x0000FFFFFFFFE000) | (1<<50)`) attempted, with a self-test read of
 the victim before any `.text` chunk.
+
+---
+
+## Update — 23:45 — the GPU-DMA read primitive WORKS on this console
+
+The self-test passed on hardware:
+
+```
+gpuprobe: submitting DMA 0x200200000 -> 0x200400000 len=0x2000 ioctl=0xc0108102
+gpuprobe: ioctl rc=0 (errno=0)
+gpuprobe: victim  [0]=0xdeadbeef00000000 [8]=0xdeadbeef00000001
+gpuprobe: staging [0]=0xdeadbeef00000000 [8]=0xdeadbeef00000001   DMA_WORKS=1
+```
+
+A CPU-written pattern in the victim buffer was copied by the GPU into the staging
+buffer and read back from the CPU. That validates the whole path: the
+`/dev/gc` submit ioctl, the PM4 `PACKET3_DMA_DATA` packet, and the GVA
+identification.
+
+### Anatomy solved on 13.60
+
+* **the dev vmid is 6** -- the garlic buffers are mapped in *vmid 6's* tree, not
+  in the process's own vmid (2). That answers the first open question;
+* the buffers are mapped **at their own CPU VA** (not at a separate GPU window),
+  as **2 MB leaves** (`IS_PTE`, bit 54):
+
+```
+vmid=6 victim  gva=0x200200000 leaf@dmap+0x16271008 val=0x4000047bc004f7 phys=0x47bc00000
+vmid=6 staging gva=0x200400000 leaf@dmap+0x16271010 val=0x4000047be004f7 phys=0x47be00000
+vmid=6 cmd     gva=0x200600000 leaf@dmap+0x16271018 val=0x4000047c0004f7 phys=0x47c000000
+```
+
+* leaf physical = bits 21..47 (`0x0000FFFFFFE00000`), **bit 50 = 0** in
+  garlic format, so the retarget must add it to reach system RAM;
+* the earlier "0xc80000000 window" (40 x 8 KB leaves per vmid) is **not** our
+  buffer: a DMA through it returned `rc=0` but moved nothing observable.
+
+### The `.text` read attempt
+
+```
+gpuprobe: ktext=0xffffffffd00b0000 -> pa=0x100b0000 ok=1
+gpuprobe: RETARGET old=0x4000047bc004f7 -> new=0x440000100004f7 (text2m=0x10000000 off=0xb0000)
+gpuprobe: TEXT DMA rc=0
+gpuprobe: TEXT[00] 00 00 ...  (all zero, nonzero_bytes_of_256=0)
+gpuprobe: victim leaf restored
+```
+
+The retarget and the DMA both executed (`rc=0`) and **the console survived**, but
+the staging buffer stayed zero. Most likely cause, straight from the reference
+docs: **the GPU TLB caches `gva -> phys`, and a retarget of the same leaf is
+ignored** -- the docs' recipe explicitly requires a *fresh victim* for every
+chunk. Our victim had already been used by the self-test DMA, so its translation
+was cached.
+
+### Next steps
+
+1. allocate a **fresh victim buffer per chunk** and retarget only its leaf (never
+   reused), then DMA `victim -> staging` and read the staging buffer;
+2. validate that order on a *known* target first: retarget a fresh victim leaf to
+   the **staging** physical (whose content we control) and check that the DMA
+   reproduces it -- this proves the retarget itself, independently of `.text`;
+3. then retarget to `.text` in 2 MB-aligned steps, dumping each chunk, and run
+   the signature scanner over the result;
+4. keep restoring the leaf after every chunk (and remember the GPU TLB caveat:
+   a restored-then-reused leaf may also be stale).

