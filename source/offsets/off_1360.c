@@ -37,12 +37,12 @@ offset_list off_1360 = {
     .KERNEL_CODE_CAVE = 0x2D39000,
     .FUN_PRINTF = 0x4ADD60,
     /* TODO(13.60): HV IOMMU helpers not yet located */
-    .FUN_HV_IOMMU_SET_BUFFERS = 0,
-    .FUN_HV_IOMM_WAIT_COMPLETION = 0,
+    .FUN_HV_IOMMU_SET_BUFFERS = 0x4FB13D, /* derived from 13.60 kernel dump (docs/1360-offsets-from-dump.md) */
+    .FUN_HV_IOMM_WAIT_COMPLETION = 0x4F9030, /* derived from 13.60 kernel dump */
     /* TODO(13.60) phase B: smp_rendezvous wrapper (13.20: 0xAF94E0). Needed by
      * the post-resume takeover to drive the multi-core VMMCALL rendezvous.
      * Not published in Byepervisor's 13_60.h; locate from a live dump. */
-    .FUN_SMP_RENDEZVOUS = 0,
+    .FUN_SMP_RENDEZVOUS = 0xB04440, /* derived from 13.60 kernel dump */
     /* TODO(13.60): the no-op setup/teardown barrier is still unidentified; the
      * shellcode can substitute its own no-op, so this may stay unused. */
     .FUN_SMP_NO_RENDEVOUS_BARRIER = 0,
@@ -55,7 +55,7 @@ offset_list off_1360 = {
      * 0x44E5D0); patched to `ret` (0xC3) so raw function-pointer callbacks
      * pass. Not published in Byepervisor's 13_60.h; locate from a live dump
      * (same "cfi_check_fail" signature the offsets tool scans for). */
-    .KERNEL_CFI_CHECK = 0,
+    .KERNEL_CFI_CHECK = 0x44F8C0, /* derived from 13.60 kernel dump */
     /* TODO(13.60): display bring-up symbols not yet located (needed for the
      * Linux boot path, not for the escape). */
     .G_VBIOS = 0,
@@ -76,7 +76,7 @@ offset_list off_1360 = {
     .GAD_POP_RSP_RET = 0x291C42,
     /* TODO(13.60): WRMSR gadget not published and not used by the high-FW
      * vector (legacy 6.xx-7.xx ROP only); left 0. */
-    .GAD_WRMSR_RET = 0,
+    .GAD_WRMSR_RET = 0x255034, /* derived from 13.60 kernel dump */
     /* Byepervisor high-FW vector */
     .KERNEL_SYM_DMPML4I = 0x3B49294,
     .KERNEL_SYM_DMPDPI = 0x3B49298,

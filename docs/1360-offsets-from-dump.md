@@ -1,0 +1,84 @@
+# 13.60 offsets derived from a community kernel dump (offline)
+
+## Why not the console / the PUP
+
+Two live routes were tried and are closed on this console:
+
+1. **Reading kernel `.text` live** (CPU via kernel VA, dmap alias, or GPU-DMA
+   retarget): the CPU path faults/powers off, the GPU path returns `0xFF`.
+   The same GPU recipe reads kernel `.data` byte-identical, so `.text` is
+   protected below the page-table permissions for every reader.
+2. **Decrypting the firmware PUP on-console** with the EncryptService
+   (`/dev/pup_update0`, ioctls `0xC0184402`/`0xC0184405`). The tool
+   (`tools/pupdec`, a port of `zecoxao/ps5-pup-decrypt` to the payload SDK)
+   runs correctly and reads `/data/PS5UPDATE.PUP` (a genuine **13.60.00
+   Recovery** PUP, sha256 `e210451f789ebe46f55b13ae049894663b796163f7b094ab993218f1cb20aa97`),
+   but every `open()` of the device fails with **EPERM** (`errno=1`),
+   including after `kernel_set_ucred_authid(pid, 0x4800000000000007)`,
+   `kernel_set_ucred_caps(pid, 0xff*16)`, `kernel_set_ucred_attrs`,
+   `uid/ruid/svuid=0`, and with authid `0x4800000000010003`. `/dev/sc_fw_update0`
+   behaves the same. The device gate is not the POSIX uid and not the ucred
+   authid tested here.
+
+## What was used instead
+
+A community capture of the **running 13.60 kernel** (text + data, same boot):
+
+* `terrafirma2021/ps5-13.60-kernel-dump`, `kernel-13.60-live.bin.gz`
+* decompressed size 103,546,880 B, sha256
+  `c3f745e25dc25ee7afef89eb418b295b6334bbefe8aa17e6886483c35d78cddd`
+  (**matches the published digest exactly**)
+* layout: kernel text 0x0..0xCC0000 at VA `0xffffffff9e3f0000`, kernel data
+  from file offset 0xCC0000 at VA `0xffffffff9f0b0000`.
+  Because text is exactly 0xCC0000 long, **file offset == ktext-relative
+  offset** for the whole image, which makes every derived value a direct
+  `off_1360.c` constant.
+
+### Authenticity check performed before trusting it
+
+Known 13.60 values from `EchoStretch/Byepervisor-Reborn` `include/offsets/13_60.h`
+were compared byte-for-byte against the dump at their ktext-relative offsets
+(11 gadgets: pivot `0x25213E`, `iretq` `0x257B3D`, pop rax/rcx/rdi/rsi/rdx/rsp/r8,
+cld, ret). All matched; the two initial "mismatches" were wrong expectations in
+the check script (`4883c428f3c3` = `add rsp,0x28; rep ret`, `4758c3` = `pop r8; ret`),
+so 11/11 are consistent. The dump therefore corresponds to a real 13.60 kernel
+with the same relative layout as the offsets table.
+
+## Values derived
+
+Found by accurate linear disassembly (capstone) with RIP-relative data
+references, then confirmed by reading the code:
+
+| field | value (ktext-relative) | evidence |
+| --- | --- | --- |
+| hypercall-4 wrapper | **0xC16A10** | `push rbp; mov rbp,rsp; mov eax,4; vmmcall; pop rbp; ret` |
+| `KERNEL_CFI_CHECK` | **0x44F8C0** | function referencing `"cfi_check_fail: data %p, caller %p, callee %p"` (str `0xffffffff9f701bfc`) and using a `lock cmpxchg` "already reported" flag: UBSan CFI failure handler |
+| `FUN_SMP_RENDEZVOUS` | **0xB04440** | references `"smp rendezvous"` (str `0xffffffff9f6caf8e`), then `mov eax,gs:[0x34]; shlx rax,rcx,rax; mov [g],rax` = CPU bitmask `1<<cpuid` |
+| `FUN_HV_IOMMU_SET_BUFFERS` | **0x4FB13D** | function containing `"hv_iommu_set_guest_buffers completion error:%d"` (str `0xffffffff9f70236e`) |
+| `FUN_HV_IOMM_WAIT_COMPLETION` | **0x4F9030** | function containing `"IOMMU: wait command completion timed out: CB3SR: %016lx"` (str `0xffffffff9f77ffba`) |
+| `GAD_WRMSR_RET` | **0x255034** | unique `0f 30 c3` in text; sequence `xor eax,eax; xor edx,edx; wrmsr; ret` starts at 0x255030 |
+| (extra) `hv_iommu_enable_device` error site | 0x4FC81A | contains `"hv_iommu_enable_device error:%d 0x%x"` |
+
+Cross-check against the 13.20 table (`off_1320.c`) shows plausible growth:
+`KERNEL_CFI_CHECK` 0x44E5D0 -> 0x44F8C0 (+0x12F0), `FUN_SMP_RENDEZVOUS`
+0xAF94E0 -> 0xB04440 (+0xAF60), `GAD_WRMSR_RET` 0x254FF4 -> 0x255034 (+0x40).
+
+## Still not covered by this dump
+
+* the **hypervisor** image: `HV_VMMCALL_HANDLER_PA`, `HV_CODE_CAVE_PA`,
+  `HV_HANDLE_VMEXIT_PA` (the HV is a separate reservation, not in a kernel dump);
+* shellcode/boot values: `G_VBIOS`, `FUN_TRANSMITTER_CONTROL`, `FUN_MP3_*`,
+  `PS5_WIFI_FW_OFFSET/SIZE`, `KERNEL_UART_OVERRIDE`, `DATA_BASE_GVMSPACE`,
+  `IOMMU_SOFTC`, `STOPPED_CPUS`, `FUN_STOP_CPUS`, `FUN_AS_LAPIC_EOI`,
+  `FUN_HV_UNMAP_PT_TMR`, `FUN_MEMCPY`, `ACPIGBL_FACS`;
+  several of these are data symbols and should be derivable from the same dump
+  by symbol-string xref (the data span contains many symbol-like strings).
+
+## Validation still owed on the console
+
+The derived values are **not yet** confirmed against this console's running
+kernel. A safe check is possible without reading `.text`: read a *data* symbol
+(e.g. `KERNEL_SYM_PMAP_STORE`) through kernel R/W and compare with the dump.
+Note the repo's own dump reported `KERNEL_SYM_PMAP_STORE = 0x3B24FF8` as a *hint*
+while the offsets tables say `0x3B48FF8`; that discrepancy must be resolved
+before trusting either. Reading `.text` on the console must remain avoided.
