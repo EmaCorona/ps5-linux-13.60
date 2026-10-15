@@ -372,3 +372,62 @@ only "the console stopped answering on the network", which does not distinguish 
 the signature table and therefore the intervention (arm post-resume vs IST-6 mapping vs payload fix).
 
 Until that is answered, P4 does not advance: no code change, no `off_1360.c` edit, no combined test.
+
+## P4.0 — SIGNATURE CONFIRMED (operator observation, 2026-10-16 00:40)
+
+Operator: **"clean power-off, LED off"** (no panic screen, no restart loop). Combined with the
+network evidence already recorded (`PL5_DIAG=1`: the console becomes unreachable; `PL5_DIAG=4`
+after the settings fix: the console stayed reachable through rest mode and resumed), the rows of
+the signature table that remain possible are:
+
+* **clean power-off / orderly shutdown** — and *not* a hang (network would stay up longer) and
+  *not* a visible panic (operator saw none).
+
+### What this rules in and out
+
+The plan's mapping for "clean power-off" is *"the resume doesn't complete -> DR7 zeroed, or the
+vector is wrong -> arm post-resume"*. **That mapping does not fit the timing we measured.** The
+console dies **~5 s after arming and before `sceSystemStateMgrEnterStandby()` is ever called**
+(that log line is absent), so no resume is involved in the failure. Something issues an *orderly*
+shutdown at (or shortly after) install time.
+
+An orderly power-off is not what a faulting #DB, a bad vector or an unusable payload produce: those
+give a hang or a panic. An orderly shutdown is what a **supervisor or watchdog decides** — on this
+console the candidates are the secure/HV layer reacting to guest tampering, or a system-level
+power request (the same class as the CEC/HDMI-Device-Link cause already found once and fixed).
+
+## P4.1 — bisect plan (one variable per session, power-cycle between)
+
+From the code, the surviving/dying delta is exactly `kh_install()`:
+
+* `PL5_DIAG=5` = escape only (`.text` RW + XOTEXT clear) -> **survives standby + resume**;
+* `PL5_DIAG=1` = escape + `kh_install()`, no RSI redirect -> **dies ~5 s after install**.
+
+`kh_install()` (`source/byepervisor/khook.c`) does, in order:
+
+1. read/save the #DB IDT gate (`KH_VEC_DB = 1`) and the IST slot — **reads only**;
+2. validate the gate handler is inside the kernel image, and the TSS `RSP` shape — **reads only**;
+3. build the arm/disarm/dispatch chains in a scratch page, including a **resumectx input struct
+   with `KH_RC_DR7 = KH_DR7_BP0_EXEC`** (the DR7 arming happens through *resumectx*, not through a
+   direct `mov dr7`, at install time);
+4. **replace the #DB IDT gate** (`gate_encode` + `kwrite_q(db_gate)`) — a `.data` write to
+   `idt_base + 16` (13.60: `0x3BB4300 + 0x10`), i.e. not a `.text` write.
+
+So the variables to separate are, in this order:
+
+* **A1 — reads only.** escape + step 1/2 (save + validate the gate). Expected: survives.
+* **A2 — gate swap, no DR7/resumectx.** escape + step 1/2 + step 4 (write the #DB gate, staged
+  chains, **no resumectx/DR7 arming**). If this dies -> the killer is the IDT-gate replacement
+  (or its interaction with other payloads that also own vector 1). If it survives -> next.
+* **A3 — DR7/resumectx arming, no gate swap.** escape + the resumectx DR7 arming alone. If this
+  dies -> the **DR7 arming** is the killer, which on this console would mean the HV/secure layer
+  treats a guest DR7 change as tampering and shuts the console down.
+
+Each test: one session, one power-cycle, log the last line reached, then stop. `off_1360.c` is not
+touched. Any offset that looks wrong gets logged and the run stops.
+
+### Also to verify before A1 (cheap, no console risk)
+
+Confirm the two settings that already bit us once are still as required
+(**HDMI Device Link = Off**, **Supply Power to USB Ports = Always**). If a system update or a
+settings reset re-enabled Device Link, A1..A3 would be measuring CEC again instead of the khook.
