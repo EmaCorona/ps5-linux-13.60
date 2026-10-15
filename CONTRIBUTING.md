@@ -3,9 +3,11 @@
 thanks for wanting to help out. this project is early, so the single most
 useful thing right now is getting it booting on more firmware.
 
-currently only **13.20** is supported. every other high firmware (8.xx through
-13.60) has the boot path in place but is missing that firmware's kernel and
-hypervisor offsets.
+currently only **13.20** is fully supported. **13.60** has its offset table and
+the escape path wired up (`off_1360.c`, `hv_defeat_1360.*`), but is still missing
+that firmware's post-resume takeover offsets, so Linux does not boot on it yet.
+every other high firmware (8.xx through 13.00) has the boot path in place but is
+missing that firmware's kernel and hypervisor offsets.
 
 ## `something went wrong during initialization`
 

@@ -2,6 +2,7 @@
 #include "hv_defeat_0506.h"
 #include "hv_defeat_0607.h"
 #include "hv_defeat_1320.h"
+#include "hv_defeat_1360.h"
 #include "loader.h"
 #include "prepare_resume.h"
 #include "utils.h"
@@ -39,6 +40,7 @@ int main(void) {
 #endif
 
   int is_1320 = 0;
+  int is_1360 = 0;
   void *shellcode_kernel = NULL;
   size_t shellcode_kernel_len = 0;
   if (fw < 0x0800) {
@@ -49,10 +51,10 @@ int main(void) {
       return -1;
     }
   } else {
-    /* The 13.20 (Byepervisor khook) vector boots via shellcode_hv staged from
-     * post_resume(); it never uses shellcode_kernel, so skip the legacy kernel
+    /* The high-FW (Byepervisor khook) vectors boot via shellcode_hv staged from
+     * post_resume(); they never use shellcode_kernel, so skip the legacy kernel
      * cave staging + page-table rewrite entirely (fewer arm-time deviations). */
-    notify("13.20: skipping legacy shellcode_kernel staging.\n");
+    notify("high-FW: skipping legacy shellcode_kernel staging.\n");
   }
 
   if ((0x0300 <= fw) && (fw < 0x0500)) {
@@ -65,9 +67,18 @@ int main(void) {
     if (hv_defeat_0607(shellcode_kernel, shellcode_kernel_len))
       goto err;
   } else if ((0x0800 <= fw) && (fw < 0x1400)) {
-    if (hv_defeat_1320(shellcode_kernel, shellcode_kernel_len))
+    /* 13.xx share the Byepervisor khook escape; only env_offset differs. */
+    if (fw == 0x1320) {
+      if (hv_defeat_1320(shellcode_kernel, shellcode_kernel_len))
+        goto err;
+      is_1320 = 1;
+    } else if (fw == 0x1360) {
+      if (hv_defeat_1360(shellcode_kernel, shellcode_kernel_len))
+        goto err;
+      is_1360 = 1;
+    } else {
       goto err;
-    is_1320 = 1;
+    }
   } else {
     goto err;
   }
@@ -85,17 +96,19 @@ int main(void) {
   sleep(5);
   enter_rest_mode();
 
-  /* On 13.20 the console comes back from rest mode with NPT disabled; finish
-   * the takeover from here (runs on the BSP once we wake). */
+  /* On 13.20/13.60 the console comes back from rest mode with NPT disabled;
+   * finish the takeover from here (runs on the BSP once we wake). */
   if (is_1320)
     hv_defeat_1320_post_resume();
+  if (is_1360)
+    hv_defeat_1360_post_resume();
 
 #ifdef PL5_OFFSETS_MODE
   /* Offsets payload: hv_defeat_1320_post_resume() has already dumped the
    * offsets and returned. Exit cleanly so elfldr is free to take the next
    * payload (the normal payload instead sleeps forever to keep the booted
    * kernel/shellcode alive). */
-  notify("13.20: offset payload done; exiting.\n");
+  notify("high-FW: offset payload done; exiting.\n");
   return 0;
 #else
   while (1) {

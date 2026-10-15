@@ -1,6 +1,9 @@
 > [!IMPORTANT]
-> this project is still **VERY** Work-in-progress, currently only 13.20 is supported
-> until i can get offsets for other FW's / full linux support
+> this project is still **VERY** Work-in-progress. **13.20** is fully
+> supported. **13.60** now has its offset table (`off_1360.c`, from
+> Byepervisor-Reborn's `13_60.h`) and the escape/hook path wired up, so the
+> hypervisor escape runs on 13.60 -- but the post-resume takeover offsets are
+> still missing, so Linux does not boot yet. see [13.60 port](#1360-port).
 
 # pLinux5-NG
 
@@ -16,6 +19,37 @@ this project is a port/rework of the existing [ps5-linux-loader](https://github.
   is what has changed in this project. on 3.00 through 7.61 its flatz' ACPI-wakeup ROP
   chain; on high firmware it is a khook on the S3-resume `HV_MP_STARTUP_CALL` path. as implemented
   in Byepervisor-Reborn.
+
+## 13.60 port
+
+13.60 reuses the 13.20 escape and boot path verbatim; only the offset values
+change. What is in place today:
+
+- `source/offsets/off_1360.c` -- kernel/HV symbols and gadgets, taken from
+  Byepervisor-Reborn's [`include/offsets/13_60.h`](https://github.com/EchoStretch/Byepervisor-Reborn/blob/main/include/offsets/13_60.h)
+- `include/hv/defeat/hv_defeat_1360.h` + `source/hv/defeat/hv_defeat_1360.c`
+- routing in `source/main.c` / `source/core/utils.c` (`case 0x1360`)
+
+With these, the Byepervisor khook escape (make kernel `.text` RW, clear XOTEXT,
+install the S3-resume `HV_MP_STARTUP_CALL` hook, redirect to `break_hv`) runs on
+13.60 and the console resumes with NPT disabled.
+
+**Still missing for a Linux boot** (post-resume takeover, phase B): four
+firmware-specific addresses that are *not* in Byepervisor's `13_60.h` and have
+to be pulled from a real 13.60 console dump:
+
+| value | 13.20 reference | where it lives |
+|---|---|---|
+| HV VMMCALL handler PA (dmap) | `0x62847375` | `hv_defeat_1360.c` |
+| `KERNEL_CFI_CHECK` | `0x44E5D0` | `off_1360.c` |
+| `FUN_SMP_RENDEZVOUS` | `0xAF94E0` | `off_1360.c` |
+| hypercall-4 wrapper | `0xC09E40` | `hv_defeat_1360.c` |
+
+the shared takeover blob (`source/shellcode/hv_takeover/`) is also 13.20-hard-
+coded and needs the same treatment. until then `PL5_1360_TAKEOVER=0` (default)
+keeps phase B compiled out, so the 13.60 build is safe to run and stops after
+confirming the escape. run `tools/pl5-offsets.elf` on a 13.60 console to produce
+the dump that fills these in.
 
 ## usage
 
