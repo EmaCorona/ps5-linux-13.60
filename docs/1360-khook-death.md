@@ -135,3 +135,40 @@ What the pair should show, if the window is really the mechanism:
 
 `diag17` is built (`bin/p4-diag17.elf`) and not yet measured: the console currently has no loader
 (`9021` closed) after `diag16`, so the chain has to be re-established first.
+
+### P4.4 — MEASURED: the window was the mechanism
+
+Run 2026-10-16 01:16, console `13.60.0007`, both stages measured against the same indicators
+(`ping` for the console, ports `9021`/`9120` for the loader and the helper).
+
+`diag17` log, verbatim:
+
+```text
+[000023] 13.60: P4 diag=17 skip_mask=0
+[000028] 13.60: [E] core=15 ktext=0xffffffff93e30000 scratch=0xffffffff96b69000 tgt=0xffffffff94a46ee0 idt=0xffffffff979e4300 tss=0xffffffff979e6fe0
+[000029] 13.60: P4 diag17: kh_restore rc=0 (gate+IST restored right after the trigger)
+[000030] 13.60: [F] triggered
+[000031] 13.60: hypervisor escape armed (diag=17). Rest mode -> payload.
+[000033] 13.60: P4 diag=17 — install done; heartbeat, standby SKIPPED
+[000053] 13.60: [hb 19]
+```
+
+| stage | hijack window | payload output | console | `9021` loader | `9120` helper |
+| --- | --- | --- | --- | --- | --- |
+| `diag16` | whole run | stops at `[hb 00]` | alive | **closed** | **closed** |
+| `diag17` | trigger only | completes `[hb 00] … [hb 19]` | alive | **open** | **open** |
+
+So: the same install, the same trigger, the same heartbeat — the only difference is whether the
+`#DB` gate and the `IST1` slot are handed back immediately. With them handed back, nothing else in
+the system is disturbed: the payload finishes its run, the loader and the helper are still there,
+and the console is untouched.
+
+**The hijack window is the mechanism, and shrinking it is enough to stop the collateral damage.**
+
+This also validates the production variant by inference: staging early is harmless (`diag11`), and
+the arm is the part that must be short, so writing the gate and the `IST1` slot as the **last** step
+before requesting standby should behave like `diag17` does here — the hook stays armed only across
+the sleep, which is the minimum the design permits.
+
+The residual race is still open and is what the scoped chain would close: a foreign `#DB` arriving
+inside the shortened window is still captured.
