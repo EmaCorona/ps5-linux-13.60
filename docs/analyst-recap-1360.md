@@ -199,3 +199,66 @@ Expected: every `delta_i = console_i - dump_i` equals the same KASLR slide.
 
 Console state at the time of writing: **OFF** (ping fail, 9021/9120 closed). Needs a power-cycle
 and an exploit-chain re-run; nothing else is pending on my side.
+
+---
+
+# Priority 1 — data-set validation run (2026-10-16 00:32 CEST)
+
+Console was back on (`ps5_kernel r229358/releases/13.60`, 9021/9120 open,
+helper `ucred_elevated:true`). Tool: `bin/pl5-verify-1360.elf`, spec written to
+`/data/pl5-verify-spec.txt` (elfldr hands a `payload_args` struct, not argv), one
+offset per invocation, dry-run first.
+
+## Inputs and raw outputs
+
+```
+DRY RUN KTEXT:0x3B48FF8 -> namespace KTEXT / offset 0x3b48ff8 / expected section: data /
+                           resulting VA 0xffffffffa19a8ff8 / nothing read
+COMMIT KTEXT:0x3B48FF8 -> raw=ffffffff9f1a441a
+COMMIT KTEXT:0x3BB4300 -> raw=9e0c8e000020a300
+COMMIT KTEXT:0x3BB6FE0 -> raw=9a807a4000000000
+COMMIT KTEXT:0x3B49294 -> raw=00000124000001cc
+COMMIT KTEXT:0x3B49298 -> raw=0000000000000124
+COMMIT KTEXT:0x3B47E4C -> raw=a62180000000016f
+STRING KTEXT:0x1311bfc -> raw=636568635f696663   (memory bytes: "cfi_chec")
+STRING KTEXT:0x12daf92 -> raw=6f767a65646e6572   (memory bytes: "rendezvo")
+```
+
+Console kernel text base, from the tool's own VA: `0xffffffff9de60000`.
+Dump kernel text base: `0xffffffff9e3f0000`. **Slide = -0x590000.**
+
+## Same build: confirmed
+
+The two string reads return, in memory order, exactly the dump's bytes at the same
+ktext-relative offsets (`"cfi_chec"` = start of `cfi_check_fail: data %p, caller %p,
+callee %p`, and `"rendezvo"` = start of `smp rendezvous`). (An initial comparison
+looked like a byte reversal; that was an artifact of my own script re-parsing the
+printed u64 hex as a big-endian byte string. The real memory bytes match.)
+
+## Deltas (console - dump)
+
+| offset | field | console | dump | delta |
+| --- | --- | --- | --- | --- |
+| `0x3b48ff8` | PMAP_STORE | `0xffffffff9f1a441a` | `0xffffffff9f73441a` | `0xffffffffffa70000` |
+| `0x3bb4300` | IDT[0] | `0x9e0c8e000020a300` | `0x9e658e000020a300` | `0xffa7000000000000` |
+| `0x3bb6fe0` | COMMON_TSS | `0x9a807a4000000000` | `0x97807a4000000000` | `0x300000000000000` |
+| `0x3b49294` | DMPML4I | `0x1cc` | `0x11c` | `0xb0` |
+| `0x3b49298` | DMPDPI | `0x124` | `0x1dc` | `0xffffffffffffff48` |
+| `0x3b47e4c` | PML4PML4I | `0xa62180000000016f` | `0xa66180000000018c` | `0xffbfffffffffffe3` |
+
+## Reading of the table
+
+* **`PMAP_STORE`**: delta `-0x590000` — **exactly the slide**. This is a pointer into
+  the kernel image, so it slides with it. Consistent.
+* **`IDT[0]`**: the gate descriptor's `offset[31:16]` field (bits 48..63) differs by
+  `-0x59`, i.e. `-0x590000` — again **exactly the slide**, for a descriptor pointing
+  into kernel text. Consistent.
+* **`COMMON_TSS`, `PML4PML4I`, `DMPML4I`, `DMPDPI`**: deltas differ. Expected:
+  these hold *heap / page-table / index* values, not pointers into the kernel image, so
+  they do not slide with ktext. Nothing here contradicts alignment — it only tells us the
+  set is not a slide test for those fields.
+
+**Status: the dump's ktext-relative offsets align with this console's running 13.60
+kernel** (same build, slide `-0x590000`). The derived values in `off_1360.c` keep the
+same relative offsets, so they remain valid. A slide test only works on image-pointing
+values; that is now recorded so it is not repeated.

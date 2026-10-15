@@ -46,8 +46,25 @@ int main(int argc, char **argv) {
     else if (!spec) spec = argv[i];
     else { printf("REFUSED: more than one spec per invocation\n"); return 2; }
   }
+  static char spec_buf[128];
   if (!spec) {
+    /* elfldr hands a payload_args struct, not argv: read the spec from a file.
+     * line 1 = NS:OFFSET, optional line 2 containing "commit". */
+    FILE *f = fopen("/data/pl5-verify-spec.txt", "r");
+    if (f) {
+      if (fgets(spec_buf, sizeof spec_buf, f)) {
+        char *nl = strpbrk(spec_buf, "\r\n");
+        if (nl) *nl = 0;
+        spec = spec_buf;
+      }
+      char l2[64];
+      if (fgets(l2, sizeof l2, f) && strstr(l2, "commit")) commit = 1;
+      fclose(f);
+    }
+  }
+  if (!spec || !*spec) {
     printf("usage: pl5-verify-1360 <NS:OFFSET> [--commit]\n"
+           "  or write the spec to /data/pl5-verify-spec.txt\n"
            "  NS in {KTEXT,HV,DATA,PHYS}; one offset per run\n");
     return 2;
   }
