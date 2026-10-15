@@ -205,3 +205,62 @@ c) **Do it offline instead**: obtain a 13.60 firmware image (kernel + HV) and
 d) Note for whoever picks this up: the payload log on the console is preserved
    across the power-off. It must be read **before** any new payload run, because
    `notify()` truncates it per run.
+
+---
+
+## Update — 23:40 — GPU-DMA path: reconnaissance on the console
+
+The GPU translates its accesses through its own per-VMID GPUVM, so it does not go
+through the CPU-side NPT/nda protection that makes any CPU read of `.text` fatal.
+This repo already carries most of the primitive in `source/hw/gpu.c`
+(`gpu_init`, `gpu_read_phys`, `gpu_transfer_physical`, the PM4 `DMA_DATA` builder
+and the `/dev/gc` submit ioctl); what is missing is the 13.60 model.
+
+`tools/pl5-gpu-probe.c` (read-only: it never retargets a leaf and never submits a
+DMA packet) was run on the console. Measured:
+
+```
+fw=1360 ktext=0xffffffffd00b0000 kdata=0xffffffffd0d70000 dmap=0xfffffc6f00000000
+vmid(+0x1FC) = 0xff00000000000002        -> u32 = 2   (offset 0x1FC confirmed;
+                                                         the u64 carries a Sony sentinel)
+victim va=0x200200000 off=0x2027a00000
+staging va=0x200400000 off=0x2027c00000
+cmd     va=0x200600000 off=0x2027e00000
+/dev/gc fd=20                            (opens fine)
+gvmspace[0] @ kdata+0x2EEA570  page_dir_va=0xffffff8093aa0000 start=0 size=0xfc00000000
+gvmspace[2] (= our vmid)       page_dir_va=0xffffff8093aa8000 start=0 size=0x1000000000000
+gvmspace[3..6] start=0 size=0x1000000000000 ; gvmspace[7..15] all zero
+```
+
+So for 13.60: `VMSPACE_VM_VMID = 0x1FC` (read as u32) and
+`DATA_BASE_GVMSPACE = 0x2EEA570` are both confirmed on hardware, and
+`page_dir_va` is a **kernel VA** (reading it as a physical address yields zeros).
+
+Walking the trees for GPU VA `0xc80000000` reached entries in vmids 0..6, but the
+result does not yet match the documented layout:
+
+```
+vmid=2  ptb[0] @0x…16232000 = 0x900000016232805 tf=1 frag=1
+        leaf8k[0] @0x…16232000 = 0x900000016232805   (same address re-read)
+vmid=4  ptb[0] @0x…1623d000 = 0x90000001623d805 tf=1 frag=1
+        leaf8k[0] @0x…1623c000 = 0x200000001623d005   phys=0x1623c000
+vmid=6  ptb[0] @0x…1626f000 = 0x90000001626f805 tf=1 frag=1
+        leaf8k[0] @0x…1626e000 = 0x473690277          phys=0x473690000  (>16 GiB: VRAM)
+```
+
+Open questions that must be settled before any retarget is attempted (a wrong
+retarget panics the console):
+
+1. the exact level/index tuple and the mask used at each level: `GPU_DMA_PHYS_FIX`
+   documents PDB2→PDB1(39)→PDB0(30)→PTB(21)→TF sub-table(16)→8 KB leaf(13), but our
+   walk from pml4[0]→pdpt[50]→pd[0] already lands on entries carrying bits 56/59,
+   i.e. there is at least one extra indirection versus that description;
+2. whether the garlic buffers really sit at `0xc80000000 + 2 MiB * n`: only the
+   first allocation appears under `0xc80000000`, and `staging`/`cmd` are mapped
+   nowhere in any tree (all vmids return -1 for `0xc80200000` / `0xc80400000`);
+3. which vmid the `/dev/gc` ioctl actually submits under (trees exist for 0..6;
+   the analyst's notes say the dev vmid is dynamic, 5 or 6 on different boots).
+
+The probe, the source tree and the ability to rerun it over elfldr's HTTP
+interface (which returns the payload's stdout) are all in place, so answering the
+three points above is one console session away.
