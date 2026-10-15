@@ -118,11 +118,14 @@ static int gpu_walk(const char *tag, uint64_t pdb2_va, uint64_t gva,
          (unsigned long)((e >> 56) & 1), (unsigned long)((e >> 59) & 0xF));
   if (!(e & 1))
     return -1;
-  uint64_t sub = dmap + (e & GPU_LEAF8K_MASK);
+  /* The TF-flagged entry is a *table pointer*: its address lives in bits 6-47
+   * (GPU_PTR_MASK), not in the leaf mask (bits 13-47). Using the leaf mask here
+   * strips bits 6-12 and lands back on the same page. */
+  uint64_t sub = dmap + (e & GPU_PTR_MASK);
   uint64_t i0 = (gva >> 13) & 0x7;
   e = rd64v(sub + i0 * 8);
-  notify("gpuprobe: %s leaf8k[%lu] @%#lx = %#lx phys=%#lx bit50=%lu\n", tag, i0,
-         (unsigned long)(sub + i0 * 8), (unsigned long)e,
+  notify("gpuprobe: %s leaf8k[%lu] @%#lx = %#lx phys(b13-47)=%#lx bit50=%lu\n",
+         tag, i0, (unsigned long)(sub + i0 * 8), (unsigned long)e,
          (unsigned long)(e & GPU_LEAF8K_MASK), (unsigned long)((e >> 50) & 1));
   *leaf_va_out = sub + i0 * 8;
   *leaf_val_out = e;
@@ -236,6 +239,141 @@ int main(void) {
              (unsigned long)lval);
     }
   }
+
+  /* ---- targeted window scan: pdpt index 50 (the documented garlic window)
+   * for pd indices 0..7, on every populated vmid. This is what tells us which
+   * tree actually holds our three newly allocated buffers. ---------------- */
+  for (int vm = 0; vm < 16; vm++) {
+    uint64_t base =
+        kdata_base + OFF_DATA_GVMSPACE + (uint64_t)vm * GVMSPACE_STRIDE;
+    uint64_t pd = 0, size = 0;
+    kread(base + OFF_GVM_PAGE_DIR_VA, &pd, 8);
+    kread(base + OFF_GVM_SIZE, &size, 8);
+    if (!pd || !size)
+      continue;
+    if (pd >> 48 == 0)
+      pd = dmap + (pd & 0x000FFFFFFFFFF000ULL);
+
+    /* page_dir_va is the PDB2 (PML4): descend one level before indexing the
+     * PDPT, exactly as gpu_walk() does. */
+    uint64_t e4 = rd64v(pd);
+    if (!(e4 & 1))
+      continue;
+    uint64_t pdpt = dmap + (e4 & GPU_PTR_MASK);
+    uint64_t e3 = rd64v(pdpt + 50 * 8);
+    notify("gpuprobe: vmid=%d pml4[0]=%#lx pdpt[50] @%#lx = %#lx\n", vm,
+           (unsigned long)e4, (unsigned long)(pdpt + 50 * 8), (unsigned long)e3);
+    if (!(e3 & 1))
+      continue;
+    uint64_t pdt = dmap + (e3 & GPU_PTR_MASK);
+    for (uint64_t i = 0; i < 8; i++) {
+      uint64_t e = rd64v(pdt + i * 8);
+      if (!e)
+        continue;
+      if ((e & 1) && ((e >> 54) & 1))
+        notify("gpuprobe: vmid=%d pd[%lu] @%#lx = %#lx 2M-LEAF phys=%#lx flags=%#lx\n",
+               vm, (unsigned long)i, (unsigned long)(pdt + i * 8),
+               (unsigned long)e, (unsigned long)(e & GPU_LEAF2M_MASK),
+               (unsigned long)(e & 0x00000000000000FFULL));
+      else
+        notify("gpuprobe: vmid=%d pd[%lu] @%#lx = %#lx (table? valid=%lu is_pte=%lu tf=%lu frag=%lu)\n",
+               vm, (unsigned long)i, (unsigned long)(pdt + i * 8),
+               (unsigned long)e, (unsigned long)(e & 1),
+               (unsigned long)((e >> 54) & 1), (unsigned long)((e >> 56) & 1),
+               (unsigned long)((e >> 59) & 0xF));
+    }
+  }
+
+  /* ---- find the other two buffers by scanning the trees for leaves whose
+   * physical is the victim's + 2 MB and + 4 MB (the three allocations are
+   * consecutive). Bounded: pdpt 40..60, pd 0..511. ----------------------- */
+  uint64_t vphys = 0;
+  {
+    /* our own vmid, not vmid 0: the per-vmid window is what holds our buffers */
+    uint32_t vmid_u32 = (uint32_t)(vmid & 0xFFFFFFFF);
+    uint64_t base =
+        kdata_base + OFF_DATA_GVMSPACE + (uint64_t)vmid_u32 * GVMSPACE_STRIDE;
+    uint64_t pd = 0;
+    kread(base + OFF_GVM_PAGE_DIR_VA, &pd, 8);
+    uint64_t lv = 0, lval = 0;
+    if (gpu_walk("victim", pd, 0xc80000000ULL, &lv, &lval) == 8)
+      vphys = lval & GPU_LEAF8K_MASK;
+  }
+  notify("gpuprobe: victim garlic phys=%#lx; scanning for +2M/+4M leaves\n",
+         (unsigned long)vphys);
+
+  for (int vm = 0; vm < 16 && vphys; vm++) {
+    uint64_t base =
+        kdata_base + OFF_DATA_GVMSPACE + (uint64_t)vm * GVMSPACE_STRIDE;
+    uint64_t pd = 0, size = 0;
+    kread(base + OFF_GVM_PAGE_DIR_VA, &pd, 8);
+    kread(base + OFF_GVM_SIZE, &size, 8);
+    if (!pd || !size)
+      continue;
+    if (pd >> 48 == 0)
+      pd = dmap + (pd & 0x000FFFFFFFFFF000ULL);
+    uint64_t e4 = rd64v(pd);
+    if (!(e4 & 1))
+      continue;
+    uint64_t pdpt = dmap + (e4 & GPU_PTR_MASK);
+
+    for (uint64_t i3 = 40; i3 < 61; i3++) {
+      uint64_t e3 = rd64v(pdpt + i3 * 8);
+      if (!(e3 & 1))
+        continue;
+      uint64_t pdt = dmap + (e3 & GPU_PTR_MASK);
+      for (uint64_t i2 = 0; i2 < 512; i2++) {
+        uint64_t e2 = rd64v(pdt + i2 * 8);
+        if (!(e2 & 1))
+          continue;
+        /* 8 KB leaf sub-tree: PTB then TF sub-table */
+        uint64_t ptb = dmap + (e2 & GPU_PTR_MASK);
+        for (uint64_t i1 = 0; i1 < 32; i1++) {
+          uint64_t e1 = rd64v(ptb + i1 * 8);
+          if (!(e1 & 1) || !((e1 >> 56) & 1))
+            continue;
+          uint64_t sub = dmap + (e1 & GPU_PTR_MASK);
+          for (uint64_t i0 = 0; i0 < 8; i0++) {
+            uint64_t el = rd64v(sub + i0 * 8);
+            uint64_t ph = el & GPU_LEAF8K_MASK;
+            if (1) {
+              uint64_t gva = ((uint64_t)0 << 39) | (i3 << 30) | (i2 << 21) |
+                             (i1 << 16) | (i0 << 13);
+              notify("gpuprobe: LEAF  vmid=%d phys=%#lx gva=%#lx leaf@%#lx val=%#lx bit50=%lu\n",
+                     vm, (unsigned long)ph, (unsigned long)gva,
+                     (unsigned long)(sub + i0 * 8), (unsigned long)el,
+                     (unsigned long)((el >> 50) & 1));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* ---- is the mapped physical our victim buffer? The CPU wrote a known
+   * pattern into the victim; read each vmid's first leaf physical through the
+   * dmap and compare. --------------------------------------------------- */
+  for (int vm = 0; vm < 16; vm++) {
+    uint64_t base =
+        kdata_base + OFF_DATA_GVMSPACE + (uint64_t)vm * GVMSPACE_STRIDE;
+    uint64_t pd = 0, size = 0;
+    kread(base + OFF_GVM_PAGE_DIR_VA, &pd, 8);
+    kread(base + OFF_GVM_SIZE, &size, 8);
+    if (!pd || !size)
+      continue;
+    uint64_t lv = 0, lval = 0;
+    int gran = gpu_walk("probe", pd, 0xc80000000ULL, &lv, &lval);
+    if (gran != 8)
+      continue;
+    uint64_t ph = lval & GPU_LEAF8K_MASK;
+    uint64_t w0 = 0, w1 = 0;
+    kernel_copyout((intptr_t)(dmap + ph), &w0, 8);
+    kernel_copyout((intptr_t)(dmap + ph + 8), &w1, 8);
+    notify("gpuprobe: vmid=%d phys=%#lx dmap[0]=%#lx dmap[1]=%#lx match=%lu\n", vm,
+           (unsigned long)ph, (unsigned long)w0, (unsigned long)w1,
+           (unsigned long)(w0 == 0xDEADBEEF00000000ULL));
+  }
+  notify("gpuprobe: victim pattern word0 should be 0xdeadbeef00000000\n");
 
   notify("gpuprobe: done (no retarget, no DMA submitted)\n");
   return 0;

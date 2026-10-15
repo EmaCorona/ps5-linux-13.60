@@ -264,3 +264,66 @@ retarget panics the console):
 The probe, the source tree and the ability to rerun it over elfldr's HTTP
 interface (which returns the payload's stdout) are all in place, so answering the
 three points above is one console session away.
+
+---
+
+## Update — 23:45 — GPUVM walk fixed and validated
+
+The pipeline is now correct. The 13.60 GPU chain is:
+
+```
+PDB2 (PML4, kernel VA)  -> idx (gva>>39)&0x1FF
+  PDB1 (PDPT, physical) -> idx (gva>>30)&0x1FF
+    PDB0 (PD,  physical) -> idx (gva>>21)&0x1FF
+      PTB (64 KB, frag=4) -> idx (gva>>16)&0x1F
+        TF sub-table (bit56) -> idx (gva>>13)&0x7  -> 8 KB leaf PTE
+```
+
+Two traps that cost several runs and are worth recording:
+
+* the **TF-flagged entry is a table pointer**, so its address is in bits 6..47
+  (`0x0000FFFFFFFFFFC0`). Using the *leaf* mask (bits 13..47) there strips bits
+  6..12 and lands back on the same page -- which is exactly what the earlier
+  "same address re-read" symptom was;
+* `page_dir_va` is indexed as the **PML4**; indexing the PDPT with it (as one
+  intermediate scan did) reads an empty entry and hides the whole tree.
+
+Validated output (a single boot):
+
+```
+vmid=2 (our process) : 40 leaves, gva 0xc80000000 + 8 KB*n  ->  phys 0x35200000 + 8 KB*n
+vmid=3               : 40 leaves, same GPU VA range        ->  phys 0x3f600000 + 8 KB*n
+vmid=4               : 40 leaves                           ->  phys 0x44c00000 + 8 KB*n
+vmid=5               : 40 leaves                           ->  phys 0x43b600000 + 8 KB*n
+vmid=6               : 40 leaves                           ->  phys 0x43b5a8000 + 8 KB*n
+```
+
+* leaf value shape, e.g. `0x4000035200177` -> address bits 13..47 = `0x35200000`,
+  low bits `0x177`, **bit 50 already set** (these are direct-memory allocations,
+  i.e. system RAM, so the "system coherent" flag is already there);
+* **population is lazy**: 40 x 8 KB = 320 KB mapped per vmid, not the full 2 MB;
+* the mapped physicals are **not readable through the CPU dmap** (reading
+  `dmap + phys` returns zeros), so there is no CPU-side shortcut and the garlic
+  space is separate, exactly as the reference documents state;
+* the CPU pattern written into the victim (`0xDEADBEEF...`) is **not** found at
+  any of those physicals, and `staging`/`cmd` are **not** at
+  `gva 0xc80200000` / `0xc80400000` (those PD entries are invalid).
+
+### Remaining questions before a retarget is allowed
+
+1. Which vmid does the `/dev/gc` ioctl submit under, and does the victim's leaf
+   appear in *that* vmid's tree only after a GPU submission touches it? (every
+   populated vmid shows the same 40-leaf window at the same GPU VAs, with its own
+   physical, so the window is not by itself evidence of ownership);
+2. how to obtain the GPU VAs of `staging` and `cmd`: scanning by physical failed
+   (+2 MB / +4 MB leaves do not exist), which suggests they are simply not
+   populated yet.
+
+### Planned next step (one console session)
+
+Allocate the three buffers, submit one trivial GPU operation that touches them
+through the raw PM4 path already documented, then re-scan and **diff the leaf
+set**: the leaves that appear are ours, which yields their GPU VAs and leaf
+addresses. Only after that is the retarget (`new = (old & ~0x0000FFFFFFFFE000) |
+(target_pa & 0x0000FFFFFFFFE000) | (1<<50)`) attempted, with a self-test read of
+the victim before any `.text` chunk.
