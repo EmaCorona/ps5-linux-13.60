@@ -1,5 +1,12 @@
 # 13.60 port — status, evidence and blockers
 
+> **Current status, for orientation.** This file is the chronological record and is kept as it was
+> written, day by day. If you only want the outcome: the escape works on 13.60, the missing offset
+> values have been derived from a verified kernel capture and validated on the console
+> ([`1360-offsets-from-dump.md`](1360-offsets-from-dump.md)), and what still blocks the Linux boot
+> is the armed-khook behaviour ([`1360-khook-death.md`](1360-khook-death.md)). The hypervisor
+> addresses remain out of reach of a kernel capture.
+
 Branch: `feature/13.60-support` (fork `EmaCorona/ps5-linux-13.60`).
 Target console: PS5 Slim, fw **13.60**, regular (non-pro) SoC.
 
