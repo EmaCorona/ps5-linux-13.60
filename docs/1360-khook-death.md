@@ -225,3 +225,45 @@ Not yet confirmed: whether `post_resume()` actually ran, because `/data/plinux5.
 helper to be read. The file is on disk and survives the power state, so the marker
 (`P4 diag18: post-resume reached; dump SKIPPED on purpose.`) can still be checked once the chain is
 re-established — that is the next reading, before any new payload run.
+
+### P4.4b — second reading: the payload does not survive the sleep
+
+`/data/plinux5.log` read after the chain was re-established (the file survives the power state; no
+payload ran in between, so it is the complete output of the `diag18` run). It is 40 lines and it
+**ends at the standby request**:
+
+```text
+[000036] Finished preparation. Going to rest mode in 5 seconds.
+[000037] 13.60: arm-late: kh_arm rc=0 (gate+IST written now)
+[000038] high-FW: sceSystemStateMgrEnterStandby()...
+```
+
+There is **no post-resume line** — neither the `P4 diag18: post-resume reached; dump SKIPPED on
+purpose.` marker nor the phase-A `[W0]`/`[W]` lines that a surviving run prints.
+
+So, for this cycle:
+
+* the console **did** reach standby and **did** survive the resume (operator woke it, ping OK);
+* the **payload process did not** — and neither did `elfldr` nor the `ps5upload` helper.
+
+That is a second, separate blocker from the hijack: the design needs *something* alive after the
+wake to run the takeover, and on this cycle nothing userland was.
+
+Two things to keep straight when interpreting it:
+
+* this is **not** attributable to the armed hook: the previous cycle, in which **nothing at all** was
+  armed (the invalidated `diag18`), also lost `elfldr` and the helper;
+* it **contradicts an earlier observation** in this project, where `PL5_DIAG=5` (escape only) reported
+  `standby + resume work and the payload continues`, with `[W0] pre-suspend` present. Something
+  changed between those runs, and the prime suspect is the switch to the official
+  `sceSystemStateMgrEnterStandby()` path for fw >= 0x0800 (chosen because it actually invalidates the
+  TLB across the cycle) versus the legacy event-flag rest mode.
+
+Open question for the next round: **does the official standby path preserve payload processes at
+all**, or does it require the wake work to be done entirely from the armed hook (which runs in
+kernel/hypervisor context and does not depend on our process surviving)?
+
+Note for whoever probes this next: `break_hv`'s cookie is written at the cave offset
+(`ktext + 0x2D39000`-region, see `KERNEL_SYM_DATA_CAVE`), i.e. **inside `.text`** — reading it with
+the ordinary kernel read path is the operation that already powered this console off once, so it
+must not be used as a probe as-is.
