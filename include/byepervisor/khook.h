@@ -39,6 +39,15 @@ typedef int (*kh_write_fn)(uint64_t kaddr, const void *src, size_t len);
 #define KH_SCRATCH_BIG    0x4000
 #define KH_OFF_BIG_CHAIN  0x3a00
 
+/* P4 bisection only: which install-time writes to SKIP. 0 in normal operation.
+ * Each bit isolates one write of kh_install() (see source/byepervisor/khook.c). */
+extern int kh_diag_skip_mask;
+#define KH_SKIP_BIG      0x1   /* big chain at scratch+KH_OFF_BIG_CHAIN */
+#define KH_SKIP_SCRATCH  0x2   /* scratch page image                   */
+#define KH_SKIP_IST      0x4   /* TSS IST slot -> arm_chain            */
+#define KH_SKIP_GATE     0x8   /* #DB IDT gate (vector 1)              */
+#define KH_SKIP_DR7      0x10  /* resumectx DR7 value -> 0 (no debug arming) */
+
 typedef struct {
   uint8_t *buf;
   size_t cap;

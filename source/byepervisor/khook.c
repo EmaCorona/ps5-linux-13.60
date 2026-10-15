@@ -5,6 +5,9 @@
  */
 #include "khook.h"
 
+/* P4 bisection: 0 = normal. See include/byepervisor/khook.h. */
+int kh_diag_skip_mask;
+
 static int kwrite_q(khook_t *kh, uint64_t addr, uint64_t val)
 {
   return kh->write(addr, &val, 8);
@@ -369,7 +372,8 @@ int kh_install(khook_t *kh, const kh_chain_t *handler)
     // resumectx input struct: dr7 = execute-enable; dr1-3/dr6 = 0
     putq(img, KH_OFF_RESUME + KH_RC_RSP, cont_chain - 8);
     putq(img, KH_OFF_RESUME + KH_RC_RIP, kgadget(KERNEL_GADGET_RET_TRAMP));
-    putq(img, KH_OFF_RESUME + KH_RC_DR7, KH_DR7_BP0_EXEC);
+    putq(img, KH_OFF_RESUME + KH_RC_DR7,
+       (kh_diag_skip_mask & KH_SKIP_DR7) ? 0 : KH_DR7_BP0_EXEC);
 
     off = KH_OFF_CHAIN_CONT;
     off = putq(img, off, kgadget(KERNEL_GADGET_POP_RDI));
@@ -437,26 +441,28 @@ int kh_install(khook_t *kh, const kh_chain_t *handler)
   off = emit_resume_tail(kh, bigbuf, off, frame_base, rflags_slot, iret_tramp);
   if (off > sizeof bigbuf)
     return -6;
-  if (kh->write(big, bigbuf, off) != 0)
+  if (!(kh_diag_skip_mask & KH_SKIP_BIG) && kh->write(big, bigbuf, off) != 0)
     return -7;
 
-  if (kh->write(scratch, img, sizeof img) != 0)
+  if (!(kh_diag_skip_mask & KH_SKIP_SCRATCH) && kh->write(scratch, img, sizeof img) != 0)
     return -7;
 
-  if (kwrite_q(kh, ist, arm_chain) != 0)
+  if (!(kh_diag_skip_mask & KH_SKIP_IST) && kwrite_q(kh, ist, arm_chain) != 0)
     return -8;
 
   gate_encode(kgadget(KERNEL_GADGET_PIVOT_ADD_RSP28_RET), kh->kcs, kh->ist_index,
               KH_GATE_INTERRUPT, 0, 1, &lo, &hi);
-  if (kwrite_q(kh, db_gate + 8, hi) != 0)
-    return -9;
-  if (kwrite_q(kh, db_gate, lo) != 0)
-    return -10;
+  if (!(kh_diag_skip_mask & KH_SKIP_GATE)) {
+    if (kwrite_q(kh, db_gate + 8, hi) != 0)
+      return -9;
+    if (kwrite_q(kh, db_gate, lo) != 0)
+      return -10;
+    if (kread_q(kh, db_gate) != lo || kread_q(kh, db_gate + 8) != hi)
+      return -12;
+  }
 
-  if (kread_q(kh, ist) != arm_chain)
+  if (!(kh_diag_skip_mask & KH_SKIP_IST) && kread_q(kh, ist) != arm_chain)
     return -13;
-  if (kread_q(kh, db_gate) != lo || kread_q(kh, db_gate + 8) != hi)
-    return -12;
 
   kh->installed = 1;
   return 0;

@@ -431,3 +431,39 @@ touched. Any offset that looks wrong gets logged and the run stops.
 Confirm the two settings that already bit us once are still as required
 (**HDMI Device Link = Off**, **Supply Power to USB Ports = Always**). If a system update or a
 settings reset re-enabled Device Link, A1..A3 would be measuring CEC again instead of the khook.
+
+---
+
+# P4.1 — first bisection results (console session 2026-10-16 00:47–00:50)
+
+Built with a diagnostic skip-mask added to the vendored khook
+(`kh_diag_skip_mask`, `KH_SKIP_{BIG,SCRATCH,IST,GATE,DR7}`) plus an
+"install + heartbeat, never enter standby" mode for `PL5_DIAG >= 10`, so a run costs
+seconds instead of a rest-mode cycle and the CEC variable is gone entirely.
+
+| run | single variable | console | raw evidence |
+| --- | --- | --- | --- |
+| `diag13` | **control**: escape only, `kh_install` **skipped**, no standby | **SURVIVED** | escape page-table logs, then 20 heartbeats `[hb 00]..[hb 19]`, ping OK, 9021/9120 open |
+| `diag11` | full install **minus the #DB IDT gate write** (`KH_SKIP_GATE`) | **SURVIVED** | `[B] chain built (384 bytes)`, `[D] kh_install rc=0`, `[E] core=15 ktext=0xffffffff9de60000 scratch=0xffffffffa0b99000 tgt=0xffffffff9ea76ee0 idt=0xffffffffa1a14300 tss=0xffffffffa1a16fe0`, then `!! signal 5 at 200002a6e (code 2)` — the #DB reached the **original** handler and killed only our process |
+| `diag15` | full install, gate written, **resumectx `DR7 = 0`** (`KH_SKIP_DR7`) | **DIED** | the console stopped answering during the run; the HTTP request never returned |
+
+## What these two points already exclude
+
+* **The DR7 value is not the trigger.** With the gate in place but `DR7 = 0` the console still
+  dies, so "the HV sees the debug registers armed" is refuted as the cause.
+* What separates surviving from dying is whether the **#DB is routed into our chain** (gate
+  swapped) and that chain then runs: privileged `resumectx`/`DBREG_RESUME` plus the trap-frame /
+  IST manipulation. The `#DB` itself comes from `kh_trigger()` (`hv_defeat_1360.c:520`), which
+  runs immediately after `[E]`.
+
+## Next single variable
+
+**`diag16` = full install, `kh_trigger()` never called** (no `#DB` at all), then heartbeat.
+* dies -> merely having the swapped gate present is fatal (install-time write);
+* survives -> the fatal step is the `#DB`/chain execution itself.
+
+## Evidence to collect on the next boot
+
+`/data/plinux5.log` is on disk and survives the power-off, so after the power cycle it should
+still hold the **last line the diag15 run reached before dying** — the exact "last line before
+death" the signature table wants. Read it before any new payload run.

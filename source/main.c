@@ -98,6 +98,15 @@ int main(void) {
          "blinking and then wakeup to Linux :)\n");
 #endif
 
+#if PL5_DIAG >= 10
+  /* P4 bisection: never enter standby; just prove how long the install survives. */
+  notify("13.60: P4 diag=%d — install done; heartbeat, standby SKIPPED\n", PL5_DIAG);
+  for (int __i = 0; __i < 20; __i++) {
+    notify("13.60: [hb %02d]\n", __i);
+    sleep(1);
+  }
+  return 0;
+#endif
   sleep(5);
   if (fw >= 0x0800) {
     /* High-FW: use the real standby path (Byepervisor design) so the TLB is

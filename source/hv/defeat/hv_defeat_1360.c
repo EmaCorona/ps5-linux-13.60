@@ -878,6 +878,25 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 
   /* Stages 1-3 install the same oneshot hook; only the RSI redirect (and hence
    * whether break_hv actually runs) differs. */
+#if PL5_DIAG >= 10
+  /* P4 bisection: install with selected writes skipped (see khook.h). */
+# if PL5_DIAG == 13
+  notify("13.60: P4 control: escape only, kh_install SKIPPED\n");
+  return 0;
+# endif
+# if PL5_DIAG == 11
+  kh_diag_skip_mask = KH_SKIP_GATE;                               /* no #DB gate write */
+# elif PL5_DIAG == 12
+  kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;                 /* no IST, no gate   */
+# elif PL5_DIAG == 14
+  kh_diag_skip_mask = KH_SKIP_BIG | KH_SKIP_SCRATCH | KH_SKIP_IST;/* only the #DB gate */
+# elif PL5_DIAG == 15
+  kh_diag_skip_mask = KH_SKIP_DR7;                                /* full install, DR7=0 */
+# else
+  kh_diag_skip_mask = 0;                                          /* diag 10: all writes */
+# endif
+  notify("13.60: P4 diag=%d skip_mask=%#x\n", PL5_DIAG, kh_diag_skip_mask);
+#endif
   ret = install_resume_hook(cave_addr, PL5_DIAG >= 2);
   if (ret) {
     notify("13.60: hook install failed (khook rc=%d).\n", ret);
