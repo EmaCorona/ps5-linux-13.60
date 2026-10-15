@@ -498,3 +498,46 @@ primitive on this console: retarget plus `PACKET3_DMA_DATA` copies any
 non-protected physical to a CPU-readable buffer, verified against both a known
 pattern and a `.data` page. It is the right tool to re-run if a future firmware
 protects less, or to read `.data`-resident values.
+
+## Update — 2026-10-16 (round 3) — integration defects fixed; offsets re-verified offline
+
+Two integration defects that the notes had flagged as suspicions are now
+**confirmed by test** and fixed, and every kernel value is re-derived by a
+committed, reproducible tool.
+
+### Fixed
+
+1. **`make PL5_1360_TAKEOVER=1` was a silent no-op.** The Makefile never
+   forwarded the flag to the compiler, so the in-source `#define
+   PL5_1360_TAKEOVER 0` won and the build shipped phase-A-only while the
+   operator believed phase B was enabled. The Makefile now has
+   `PL5_1360_TAKEOVER ?= 0` and passes `-DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER)`.
+2. **A phase-B build now refuses zero placeholders** instead of arming a
+   takeover that would jump through address 0: two `#error` guards in
+   `source/hv/defeat/hv_defeat_1360.c` fire on the still-empty
+   `PL5_1360_HV_VMMCALL_HANDLER_PA` / `PL5_1360_FUN_VMMCALL_HC4`.
+
+### Verified by build
+
+```
+$ make                          -> EXIT 0, bin/pLinux5-NG.elf (256824 B)
+$ make PL5_1360_TAKEOVER=1      -> EXIT 2, both #error guards fire (expected)
+$ python3 tools/verify_off_1360.py <13_60.h>      -> PASS (57 values)
+$ python3 tools/verify_off_1360_dump.py           -> 22/22 checks passed
+```
+
+### Offsets
+
+`FUN_HV_IOMMU_SET_BUFFERS` corrected `0x4FB13D` -> **`0x4FABD0`** (the old value
+is mid-function). `KERNEL_CODE_CAVE` set to **0**: the value it carried
+(`0x2D39000`) is Byepervisor's `KERNEL_SYM_DATA_CAVE`, a *data* address, not a
+code cave. `KERNEL_SYM_PMAP_STORE = 0x3B48FF8` confirmed (the `0x3B24FF8` hint
+is unsupported — that offset reads all-zero in the dump). Details and the full
+evidence table: `docs/1360-offsets-from-dump.md`, section *Round 3*.
+
+### Not moved
+
+Phase B and S3 resume are **unchanged**: they need the hypervisor PAs, which a
+kernel capture cannot contain, and console time. The `.text` power-off
+explanation in `docs/1360-offsets-from-dump.md` was itself wrong and is
+corrected there rather than left standing.

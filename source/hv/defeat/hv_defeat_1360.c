@@ -80,11 +80,11 @@ extern unsigned int takeover_bin_len;
  *   - PL5_1360_HV_VMMCALL_HANDLER_PA : SVM VMMCALL exit (0x81) jump-table
  *     target inside the HV image, as a physical address (13.20: 0x62847375).
  *   - env_offset.KERNEL_CFI_CHECK    : UBSan CFI failure handler (13.20:
- *     0x44E5D0); still 0 in off_1360.c.
+ *     0x44E5D0); 13.60 value confirmed from the kernel dump (0x44F8C0).
  *   - env_offset.FUN_SMP_RENDEZVOUS  : smp_rendezvous wrapper (13.20:
- *     0xAF94E0); still 0 in off_1360.c.
+ *     0xAF94E0); 13.60 value confirmed from the kernel dump (0xB04440).
  *   - PL5_1360_FUN_VMMCALL_HC4       : kernel hypercall-4 wrapper
- *     `mov eax,4; vmmcall; ret` (13.20: 0xC09E40).
+ *     `mov eax,4; vmmcall; ret` (13.20: 0xC09E40; 13.60: 0xC16A10).
  * ---------------------------------------------------------------------------
  */
 #ifndef PL5_1360_TAKEOVER
@@ -95,6 +95,16 @@ extern unsigned int takeover_bin_len;
 /* TODO(13.60): fill from a live dump before enabling the takeover. */
 #define PL5_1360_HV_VMMCALL_HANDLER_PA 0x0ULL
 #define PL5_1360_FUN_VMMCALL_HC4 0x0ULL
+
+/* A build that enables phase B must not silently carry placeholder (zero)
+ * references: fail the build instead of arming a takeover that would jump
+ * through address 0. This is the explicit rejection the port requires. */
+#if PL5_1360_HV_VMMCALL_HANDLER_PA == 0
+#error "13.60 takeover: PL5_1360_HV_VMMCALL_HANDLER_PA is a 0 placeholder; derive it from a live hypervisor dump before enabling phase B"
+#endif
+#if PL5_1360_FUN_VMMCALL_HC4 == 0
+#error "13.60 takeover: PL5_1360_FUN_VMMCALL_HC4 is a 0 placeholder; use the confirmed 13.60 wrapper 0xC16A10"
+#endif
 #endif
 
 /* Set by hv_defeat_1360() before rest mode, consumed by the post-resume

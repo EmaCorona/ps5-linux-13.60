@@ -33,8 +33,14 @@ PL5_PROBE ?= 0
 # checkpoint instead of booting. 0=full boot, 1=entry, 2=post-configure_vram,
 # 3=post-barrier.
 PL5_HV_STOP ?= 0
+# 13.60 post-resume takeover (phase B, source/hv/defeat/hv_defeat_1360.c).
+# Off by default: an ordinary build must leave phase B disabled. This MUST be
+# forwarded to the compiler, otherwise `make PL5_1360_TAKEOVER=1` is a silent
+# no-op (the in-source default is 0) and the build would ship the phase-A-only
+# binary while the operator believes the takeover is enabled.
+PL5_1360_TAKEOVER ?= 0
 
-CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
+CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
 # pLabs5 toolchain override (see PORTING.md). Pass LLVM_CONFIG in the environment:
 #   export LLVM_CONFIG=/nyaa/coding/public/PS5/dRPC5/pLabs5-SDK/tools/nixos/llvm-config
 LDFLAGS := -lSceSystemService

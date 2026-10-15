@@ -54,7 +54,7 @@ references, then confirmed by reading the code:
 | hypercall-4 wrapper | **0xC16A10** | `push rbp; mov rbp,rsp; mov eax,4; vmmcall; pop rbp; ret` |
 | `KERNEL_CFI_CHECK` | **0x44F8C0** | function referencing `"cfi_check_fail: data %p, caller %p, callee %p"` (str `0xffffffff9f701bfc`) and using a `lock cmpxchg` "already reported" flag: UBSan CFI failure handler |
 | `FUN_SMP_RENDEZVOUS` | **0xB04440** | references `"smp rendezvous"` (str `0xffffffff9f6caf8e`), then `mov eax,gs:[0x34]; shlx rax,rcx,rax; mov [g],rax` = CPU bitmask `1<<cpuid` |
-| `FUN_HV_IOMMU_SET_BUFFERS` | **0x4FB13D** | function containing `"hv_iommu_set_guest_buffers completion error:%d"` (str `0xffffffff9f70236e`) |
+| `FUN_HV_IOMMU_SET_BUFFERS` | **0x4FABD0** | function containing `"hv_iommu_set_guest_buffers completion error:%d"` (str `0xffffffff9f70236e`); **corrected in round 3** — the earlier `0x4FB13D` is mid-function, not an entry |
 | `FUN_HV_IOMM_WAIT_COMPLETION` | **0x4F9030** | function containing `"IOMMU: wait command completion timed out: CB3SR: %016lx"` (str `0xffffffff9f77ffba`) |
 | `GAD_WRMSR_RET` | **0x255034** | unique `0f 30 c3` in text; sequence `xor eax,eax; xor edx,edx; wrmsr; ret` starts at 0x255030 |
 | (extra) `hv_iommu_enable_device` error site | 0x4FC81A | contains `"hv_iommu_enable_device error:%d 0x%x"` |
@@ -87,13 +87,20 @@ before trusting either. Reading `.text` on the console must remain avoided.
 
 ## Incident (2026-10-16): the console powered off while validating
 
-The first validation run read `ktext + 0x2D39000`. That offset is
-`KERNEL_CODE_CAVE`/`DATA_CAVE` and lies **inside the kernel `.text` region**
-(any ktext-relative offset below `0xCC0000` does). Reading `.text` on this
+The first validation run read `ktext + 0x2D39000`. Reading `.text` on this
 console is fatal — the same effect already seen when dumping `.text` — and the
 console powered off (unreachable on 9021/9120, no ping). Two entries in the same
 list, `0x83028` and `0x82A60`, were also wrong: those are **hypervisor**-relative
 values and must never be added to `ktext`.
+
+> **Correction (round 3, 2026-10-16):** this paragraph used to claim that
+> `0x2D39000` “lies inside the kernel `.text` region (any ktext-relative offset
+> below `0xCC0000` does)”. That is arithmetically false — `0x2D39000` is *above*
+> `.text` length `0xCC0000`, so it is a **kernel-data** offset. The power-off is
+> therefore *not* explained by “.text is read-protected”; the cause of that
+> specific read killing the console is still unexplained and is tracked as an
+> open question. What is certain: the value is data-namespace, and it is
+> Byepervisor's `KERNEL_SYM_DATA_CAVE`, not a code cave.
 
 **Rule, now enforced in `tools/pl5-verify-1360.c`:** probe only kernel data
 addresses, i.e. `ktext + offset` with `offset >= 0xCC0000`. The tool skips
@@ -118,3 +125,57 @@ recipe reads a kernel `.data` physical byte-identically while `.text` returns `0
 
 The three hypervisor PAs (`HV_VMMCALL_HANDLER_PA`, `HV_CODE_CAVE_PA`, `HV_HANDLE_VMEXIT_PA`) are
 therefore **out of scope for any kernel capture** on 8.00+; they need the NPT-alias HV dump route.
+
+---
+
+## Round 3 (2026-10-16): independent re-verification with a committed tool
+
+Every kernel value claimed above was re-derived from scratch — without reading
+`off_1360.c` — by `tools/verify_off_1360.py` (header/field/layout checks) and the
+new `tools/verify_off_1360_dump.py` (dump checks). The dump check locates each
+signature string in the image, finds its RIP-relative xrefs from `.text`, and
+resolves the *strict* function entry of the enclosing function (padding + real
+prologue), so it does not depend on any value already written in the tables.
+
+Input: `~/src/ps5-dumps/k1360.bin`, sha256
+`c3f745e25dc25ee7afef89eb418b295b6334bbefe8aa17e6886483c35d78cddd`, 103,546,880 B.
+
+```
+$ python3 tools/verify_off_1360.py <13_60.h>          -> PASS (57 values)
+$ .venv-rea/bin/python tools/verify_off_1360_dump.py  -> 22/22 checks passed
+```
+
+### Confirmed (independently)
+
+| field | value | how it was confirmed |
+| --- | --- | --- |
+| `KERNEL_CFI_CHECK` | `0x44F8C0` | strict entry; the `cfi_check_fail:` string xref `@0x44F925` sits inside it |
+| `FUN_SMP_RENDEZVOUS` | `0xB04440` | strict entry; `smp rendezvous` xref `@0xB0444B` inside it |
+| `FUN_HV_IOMM_WAIT_COMPLETION` | `0x4F9030` | strict entry; `IOMMU: wait command completion` xref `@0x4F90B9` inside it |
+| `GAD_WRMSR_RET` | `0x255034` | bytes `0f 30 c3` (`wrmsr; ret`) |
+| `GAD_ADD_RSP_28_POP_RBP_RET` | `0x25213E` | bytes `48 83 c4 28 f3 c3` = `add rsp,0x28; rep ret` (the doc's own note was right) |
+| hypercall-4 wrapper | `0xC16A10` | decodes `push rbp; mov rbp,rsp; mov eax,4; vmmcall; pop rbp; ret` |
+| `KERNEL_SYM_PMAP_STORE` | `0x3B48FF8` | Byepervisor-verbatim **and** the dump holds a live kernel VA `0xffffffff9f73441a` there; `0x3B24FF8` holds `00…` |
+
+### Refuted
+
+* **`FUN_HV_IOMMU_SET_BUFFERS` = `0x4FB13D` is wrong.** It is not a function
+  entry (it decodes as `lea rax,[rip+…]` mid-function). The function holding the
+  signature string starts at **`0x4FABD0`** (strict entry, next entry
+  `0x4FB270`). The table now carries `0x4FABD0`.
+* **`KERNEL_CODE_CAVE` = `0x2D39000` is wrong as a *code* cave.** `0x2D39000`
+  is `>= .text` length `0xCC0000`, i.e. it is **data**-namespace: it is
+  Byepervisor's `KERNEL_SYM_DATA_CAVE`. A code cave must be executable, and no
+  13.60 code cave is evidenced. The field is now `0`; the high-FW vector never
+  reads it (`main.c` stages `shellcode_kernel` only for `fw < 0x0800`), so this
+  is inert for the port and stops the table advertising an unverified address.
+
+### Still open (with the evidence that bounds it)
+
+* Why `ktext + 0x2D39000` powered the console off is **not** explained by the
+  `.text`-read-protection story (corrected above). The dump says the address is
+  data; the console says reading it is fatal. The two facts are not reconciled
+  by any evidence currently in the repo — tracked as an open question, not
+  papered over.
+* The three hypervisor PAs remain out of scope for a kernel capture (see the
+  round-2 correction above): they need the NPT-alias HV dump route.

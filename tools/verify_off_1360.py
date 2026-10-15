@@ -28,7 +28,7 @@ MAP = {
     "KERNEL_SYM_HV_MP_STARTUP_CALL": ["KERNEL_SYM_HV_MP_STARTUP_CALL"],
     "KERNEL_SYM_MP_STARTUP_INIT_VECTOR": ["KERNEL_SYM_MP_STARTUP_INIT_VECTOR"],
     "KERNEL_SYM_PMAP_STORE": ["KERNEL_SYM_PMAP_STORE"],
-    "KERNEL_SYM_DATA_CAVE": ["KERNEL_SYM_DATA_CAVE", "KERNEL_CODE_CAVE"],
+    "KERNEL_SYM_DATA_CAVE": ["KERNEL_SYM_DATA_CAVE"],
     "KERNEL_SYM_IDT_ARRAY": ["IDT"],
     "KERNEL_SYM_COMMON_TSS": ["COMMON_TSS"],
     "HV_SYM_HEAP_BASE": ["HV_SYM_HEAP_BASE"],
@@ -117,6 +117,27 @@ if '#include "hv_defeat_1360.h"' not in main_c:
     errors.append("main.c: hv_defeat_1360.h not included")
 if "extern offset_list off_1360;" not in struct_src:
     errors.append("offsets.h: off_1360 not declared")
+
+# ---- 2b. 13.60 decisions that must stay true --------------------------------
+# KERNEL_CODE_CAVE: Byepervisor publishes only KERNEL_SYM_DATA_CAVE (0x2D39000),
+# which is a *data* address (0x2D39000 >= .text length 0xCC0000), not a code
+# cave. The 13.60 table must not alias the two: it carries 0 and the high-FW
+# vector never uses the field (main.c stages shellcode_kernel only for
+# fw < 0x0800). See tools/verify_off_1360_dump.py.
+if off_vals.get("KERNEL_CODE_CAVE", 0) != 0:
+    errors.append(
+        "KERNEL_CODE_CAVE must be 0 on 13.60 (no evidenced code cave; the only "
+        f"candidate is a data address) -- got 0x{off_vals.get('KERNEL_CODE_CAVE', 0):X}")
+
+# Function/tool values that must be real function entries, never placeholders.
+REQUIRED_NONZERO = [
+    "KERNEL_SYM_PMAP_STORE", "KERNEL_SYM_DATA_CAVE", "KERNEL_SYM_HV_MP_STARTUP_CALL",
+    "KERNEL_SYM_MP_STARTUP_INIT_VECTOR", "KERNEL_CFI_CHECK", "FUN_SMP_RENDEZVOUS",
+    "HV_LOADER_PA_REGULAR", "FUN_HV_IOMMU_SET_BUFFERS", "FUN_HV_IOMM_WAIT_COMPLETION",
+]
+for f in REQUIRED_NONZERO:
+    if off_vals.get(f, 0) == 0:
+        errors.append(f"{f} is 0 but is required (non-placeholder) on 13.60")
 
 # ---- report ------------------------------------------------------------------
 print(f"header symbols mapped : {len(MAP)} / {len(header_vals)}")

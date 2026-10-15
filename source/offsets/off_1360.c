@@ -34,11 +34,23 @@ offset_list off_1360 = {
     .DATA_BASE_GVMSPACE = 0,
     /* Kernel symbols (Byepervisor 13_60.h) */
     .HOOK_ACPI_WAKEUP_MACHDEP = 0x3913B0,
-    .KERNEL_CODE_CAVE = 0x2D39000,
+    /* No 13.60 code cave is evidenced. This field previously carried
+     * 0x2D39000, which is Byepervisor's KERNEL_SYM_DATA_CAVE: a *data*
+     * address (0x2D39000 > .text length 0xCC0000), not executable, and
+     * therefore not a code cave. The high-FW (Byepervisor) vector never uses
+     * this field -- main.c stages shellcode_kernel only for fw < 0x0800 -- so
+     * leaving it 0 is safe and stops the 13.60 table from advertising a
+     * plausible-looking but unverified address. See tools/verify_off_1360_dump.py. */
+    .KERNEL_CODE_CAVE = 0,
     .FUN_PRINTF = 0x4ADD60,
-    /* TODO(13.60): HV IOMMU helpers not yet located */
-    .FUN_HV_IOMMU_SET_BUFFERS = 0x4FB13D, /* derived from 13.60 kernel dump (docs/1360-offsets-from-dump.md) */
-    .FUN_HV_IOMM_WAIT_COMPLETION = 0x4F9030, /* derived from 13.60 kernel dump */
+    /* HV IOMMU helpers, confirmed against the 13.60 kernel dump
+     * (tools/verify_off_1360_dump.py, sha256 c3f745e2...cddd):
+     *   FUN_HV_IOMMU_SET_BUFFERS 0x4FABD0 is the strict function entry that
+     *     contains "hv_iommu_set_guest_buffers completion error:%d" (str
+     *     @0x131236e, xref @0x4FB231). The previously recorded 0x4FB13D is
+     *     NOT an entry -- it decodes as `lea rax,[rip+...]` mid-function. */
+    .FUN_HV_IOMMU_SET_BUFFERS = 0x4FABD0, /* confirmed: strict entry, holds the signature string */
+    .FUN_HV_IOMM_WAIT_COMPLETION = 0x4F9030, /* confirmed: strict entry, "IOMMU: wait command completion" */
     /* TODO(13.60) phase B: smp_rendezvous wrapper (13.20: 0xAF94E0). Needed by
      * the post-resume takeover to drive the multi-core VMMCALL rendezvous.
      * Not published in Byepervisor's 13_60.h; locate from a live dump. */
@@ -84,10 +96,12 @@ offset_list off_1360 = {
     .KERNEL_SYM_SYS_GETUID = 0x2A8D60,
     .KERNEL_SYM_HV_MP_STARTUP_CALL = 0xC16EE0,
     .KERNEL_SYM_MP_STARTUP_INIT_VECTOR = 0x269FB8,
-    .KERNEL_SYM_PMAP_STORE = 0x3B48FF8,
-    .KERNEL_SYM_DATA_CAVE = 0x2D39000,
-    .HV_SYM_HEAP_BASE = 0x83028,
-    .HV_SYM_PCPUS = 0x82A60,
+    .KERNEL_SYM_PMAP_STORE = 0x3B48FF8, /* Byepervisor-verbatim; dump holds a kernel VA (0xffffffff9f73441a) there, 0x3B24FF8 holds 0x00 */
+    .KERNEL_SYM_DATA_CAVE = 0x2D39000, /* kernel-data namespace: >= .text length 0xCC0000 */
+    /* HV-relative, NOT ktext-relative: both are < .text length, so they must
+     * never be added to ktext (doing so is what powered the console off). */
+    .HV_SYM_HEAP_BASE = 0x83028,   /* HV image, relative to the HV base */
+    .HV_SYM_PCPUS = 0x82A60,       /* HV image, relative to the HV base */
     /* HV reservation base: not firmware-specific (regular vs pro SoC), same
      * value as 13.20. Regular = 0x062800000; pro = 0x8E0800000. */
     .HV_LOADER_PA_REGULAR = 0x062800000,
