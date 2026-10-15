@@ -392,3 +392,54 @@ was cached.
    the signature scanner over the result;
 4. keep restoring the leaf after every chunk (and remember the GPU TLB caveat:
    a restored-then-reused leaf may also be stale).
+
+---
+
+## Update — 23:50 — GPU reads: .data works, .text is refused
+
+Two results from the same run, with the same recipe and fresh victims:
+
+```
+VALIDATE retarget victim2 -> staging physical | bit50
+         dma rc=0 cmd[0]=0xc0ffee0000000000 -> RETARGET-OK        (retarget proven)
+
+DATA     kva=0xffffffffd0d71000 pa=0x10d71000 cpu[0]=0xffffffff81530282
+         dma rc=0 gpu[0]=0xffffffff81530282 -> SYSRAM-READ-OK     (system RAM read OK)
+
+TEXT     kva=0xffffffffd00b0000 pa=0x100b0000 (2 MB base 0x10000000, off 0xb0000)
+         dma rc=0, 4096 bytes, all 0xFF                           (refused)
+```
+
+So the GPU path is fully functional and is **not** generically blocked from system
+RAM: a kernel `.data` physical is read back byte-identical to what the CPU sees
+for the same address. But the physical that the CPU page tables give for `.text`
+returns **all-ones**.
+
+Interpretation: the `.text` pages are protected **below** the page-table
+permissions -- the XOTEXT/nda bit is not the whole mechanism. Both access paths
+now agree:
+
+* CPU, through the kernel VA: faults/panics (even after the escape and a real
+  suspend);
+* CPU, through a self-made mapping of the physical: panics;
+* GPU, through a retargeted GPU PTE with the system-coherent flag: returns 0xFF.
+
+A faulting/refused read is not a wrong address: the same recipe reads a
+`.data` physical of the same kernel image correctly.
+
+### Where that leaves the four values
+
+Reading kernel `.text` on this console/firmware looks closed for live extraction.
+The practical routes that remain:
+
+1. **offline**: obtain a 13.60 firmware image (kernel + HV) and derive
+   `KERNEL_CFI_CHECK`, `FUN_SMP_RENDEZVOUS`, the hypercall-4 wrapper and the HV
+   VMMCALL handler with the tooling already on the build host (REA/Ghidra). No
+   console risk, and it does not need `break_hv`;
+2. **HV carveout through the GPU**: the GPU read path works for system RAM, and
+   the HV reservation is a physical range -- worth one probe (the reference
+   documents report it as readable even though it can be encrypted at rest);
+3. note that even with the four values, the phase-B takeover still needs an
+   **armed khook across suspend**, which is separately fatal on this console
+   (the diag=1 result); that blocker is independent of the offsets and deserves
+   its own investigation (minimal chain, other payloads owning DR7/IDT/TSS).
