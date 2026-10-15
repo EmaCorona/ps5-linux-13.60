@@ -39,6 +39,15 @@
 
 #define DMAP_BASE 0xFFFF800000000000ULL
 
+/* Kernel .text can be read two ways and neither is unconditionally safe:
+ *  - through its own kernel VA: works only if a REAL suspend invalidated the
+ *    TLB, otherwise the stale execute-only entry faults and the console dies;
+ *  - through the direct map: the dmap alias of the kernel image is deliberately
+ *    unmapped, so this normally reads nothing.
+ * So the strategy is chosen at run time: if this marker file exists on the
+ * console, use the kernel VA; otherwise use the direct map. */
+#define PL5_TEXT_VA_MARKER PL5_OUT_ROOT "/pl5-text-via-va"
+
 #ifndef PL5_OUT_ROOT
 #define PL5_OUT_ROOT "/data"
 #endif
@@ -98,6 +107,7 @@ static const pl5_off_t *find_entry(const char *name);
 
 /* Set once the kernel pmap is known and .text is confirmed readable. */
 static int g_text_ok;
+static int g_read_via_va;
 
 static uint64_t g_cr3;  /* kernel CR3 (PMAP_STORE + 0x28)      */
 static uint64_t g_dmap; /* direct-map base (pm_pml4 - pm_cr3) */
@@ -221,6 +231,13 @@ static int kread_safe(uint64_t va, void *dst, size_t n) {
     n -= (size_t)chunk;
   }
   return 0;
+}
+
+/* Dispatch between the two .text read strategies. */
+static int kread_any(uint64_t va, void *dst, size_t n) {
+  if (g_read_via_va)
+    return kernel_copyout((intptr_t)va, dst, (uint32_t)n);
+  return kread_safe(va, dst, n);
 }
 
 /* Same as dump_region() but reading through the direct map. */
@@ -509,7 +526,7 @@ static void scan_kernel(void) {
 
   for (uint64_t pos = 0; pos < size;) {
     uint32_t want = (size - pos > 0x40000) ? 0x40000 : (uint32_t)(size - pos);
-    if (kread_safe(base + pos, buf + carry, want) != 0)
+    if (kread_any(base + pos, buf + carry, want) != 0)
       break;
     uint32_t have = carry + want;
 
@@ -597,7 +614,10 @@ int pl5_dump_offsets(void) {
       entry = va_leaf_entry(ktext, &leaf);
       kpa = va_to_pa(ktext, &huge);
     }
+    g_read_via_va = (access(PL5_TEXT_VA_MARKER, F_OK) == 0);
     g_text_ok = init_ok && (kpa != 0);
+    plog("[pl5-offsets] .text read strategy: %s\n",
+         g_read_via_va ? "kernel VA (requires a real suspend)" : "dmap");
     plog("[pl5-offsets] fw=0x%04x ktext=%#llx kdata=%#llx\n", fwv,
          (unsigned long long)ktext,
          (unsigned long long)KERNEL_ADDRESS_DATA_BASE);
@@ -614,8 +634,12 @@ int pl5_dump_offsets(void) {
   }
 
   uint64_t got_text = 0, got_data = 0, got_hv = 0;
-  if (g_text_ok)
-    dump_region_safe(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
+  if (g_text_ok) {
+    if (g_read_via_va)
+      dump_region(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
+    else
+      dump_region_safe(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
+  }
   plog("[pl5-offsets] text_dump=0x%llx bytes\n", (unsigned long long)got_text);
   uint64_t kdata = KERNEL_ADDRESS_DATA_BASE;
   dump_region(p_data, kdata, PL5_KERNEL_DATA_SIZE, &got_data);
@@ -671,7 +695,7 @@ int pl5_dump_offsets(void) {
     case PL5_MODE_SIG: {
       uint8_t tmp[PL5_SIG_MAX];
       if (g_text_ok &&
-          kread_safe(ktext + e->expected, tmp, e->sig_len) == 0 &&
+          kread_any(ktext + e->expected, tmp, e->sig_len) == 0 &&
           memcmp(tmp, e->sig, e->sig_len) == 0) {
         resolved[i] = e->expected;
         how[i] = HOW_VERIFIED;

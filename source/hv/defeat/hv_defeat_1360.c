@@ -800,6 +800,18 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
     notify("13.60: stale armed mark (.text still execute-only); running escape.\n");
   }
 
+#if PL5_DIAG == 5
+  /* Stage 5: escape ONLY -- no khook, no gate, nothing armed across suspend.
+   * Isolates "the escape breaks suspend" from "the armed khook breaks it". */
+  kernel_pmap = kdlsym(KERNEL_SYM_PMAP_STORE);
+  notify("13.60: diag=5: escape only (no khook); entering rest mode.\n");
+  escape_kernel_text(kernel_pmap);
+  map_payload_executable(kernel_pmap);
+  map_payload_executable(get_proc_pmap());
+  g_armed = 0;
+  return 0;
+#endif
+
 #if PL5_DIAG == 0
   /* Stage 0: pure S3 round-trip. Arm nothing; just prove the payload process
    * survives suspend/resume (post_resume prints [W] and returns). */
