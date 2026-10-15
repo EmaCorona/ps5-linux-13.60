@@ -82,3 +82,23 @@ kernel. A safe check is possible without reading `.text`: read a *data* symbol
 Note the repo's own dump reported `KERNEL_SYM_PMAP_STORE = 0x3B24FF8` as a *hint*
 while the offsets tables say `0x3B48FF8`; that discrepancy must be resolved
 before trusting either. Reading `.text` on the console must remain avoided.
+
+---
+
+## Incident (2026-10-16): the console powered off while validating
+
+The first validation run read `ktext + 0x2D39000`. That offset is
+`KERNEL_CODE_CAVE`/`DATA_CAVE` and lies **inside the kernel `.text` region**
+(any ktext-relative offset below `0xCC0000` does). Reading `.text` on this
+console is fatal — the same effect already seen when dumping `.text` — and the
+console powered off (unreachable on 9021/9120, no ping). Two entries in the same
+list, `0x83028` and `0x82A60`, were also wrong: those are **hypervisor**-relative
+values and must never be added to `ktext`.
+
+**Rule, now enforced in `tools/pl5-verify-1360.c`:** probe only kernel data
+addresses, i.e. `ktext + offset` with `offset >= 0xCC0000`. The tool skips
+anything below that and refuses HV-relative values outright. No `.text` address
+may be touched on the console, by any path, ever.
+
+Validation itself is still owed: it needs the console back on (exploit chain
+re-run) and then a run of the hardened tool.
