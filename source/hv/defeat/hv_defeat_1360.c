@@ -840,6 +840,16 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
   kernel_pmap = kdlsym(KERNEL_SYM_PMAP_STORE);
 #endif
 
+#if PL5_DIAG >= 10
+  /* Protocol step 3: show the inherited-state marker before it is acted on, so
+   * a diagnostic run is self-documenting about whether it started clean. */
+  notify("13.60: P4 diag=%d: ARMED marker in the data cave = %#lx (%s)\n",
+         PL5_DIAG, (unsigned long)kread64(cave_addr + CAVE_STATE_OFF),
+         kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED ? "SET" : "clear");
+#endif
+  /* NOTE (production, not diagnostics): adopting this mark implicitly is what
+   * silently skipped the install for diag18. For phase B, consider making the
+   * adoption explicit/opt-in rather than automatic. */
   if (kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED) {
     /* Adopt an already-armed state ONLY if the escape is actually still in
      * effect (XOTEXT clear on the .text PTE). A stale 'KHOOKED.' mark with
