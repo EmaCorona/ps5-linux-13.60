@@ -547,10 +547,16 @@ int hv_defeat_1360_post_resume(void) {
    * So this line is expected to appear BEFORE the machine powers down -- it is
    * NOT evidence of a resume. The [W] line further down is the real one. */
   logmsg("13.60: [W0] pre-suspend (diag=%d); waiting for resume...\n", PL5_DIAG);
+#if PL5_DIAG == 5
+  /* diag=5 arms nothing on purpose (escape only), so there is no vector to wait
+   * for and no cookie to expect: go straight on to the offsets dump. */
+  notify("13.60: diag=5: nothing armed by design; proceeding to the dump.\n");
+#else
   if (!g_armed) {
     notify("13.60: post-resume called but vector was never armed.\n");
     return -1;
   }
+#endif
 
   if (g_redirected) {
     /* break_hv runs at the HV's startup_mp call and stamps the cookie, which
