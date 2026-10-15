@@ -20,4 +20,11 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len);
  */
 int hv_defeat_1360_post_resume(void);
 
+/*
+ * P4.4b (diagnostic, PL5_DIAG=18): arm a hook that was staged without the
+ * #DB gate / IST writes. Called right before the standby request so the #DB
+ * hijack is live only across the sleep.
+ */
+int hv_defeat_1360_arm(void);
+
 #endif

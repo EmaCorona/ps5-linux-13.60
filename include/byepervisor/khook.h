@@ -123,6 +123,7 @@ uint64_t kh_user_data_addr(const khook_t *kh);
 int  kh_install(khook_t *kh, const kh_chain_t *handler);
 void kh_trigger(khook_t *kh);
 
+int  kh_arm(khook_t *kh);
 int  kh_disarm(khook_t *kh);
 int  kh_restore(khook_t *kh);
 

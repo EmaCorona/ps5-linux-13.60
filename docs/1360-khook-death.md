@@ -172,3 +172,18 @@ the sleep, which is the minimum the design permits.
 
 The residual race is still open and is what the scoped chain would close: a foreign `#DB` arriving
 inside the shortened window is still captured.
+
+### P4.4b — arm-late, first attempt: invalidated by inherited state
+
+`PL5_DIAG=18` stages everything (skipping the gate and the IST slot) and arms just before the
+standby request. The first run reported `arm-late: no staged hook` and left the console alive but
+with `elfldr` and the helper gone.
+
+The cause is not the arm-late code: `hv_defeat_1360()` has an **adopt shortcut** — if the earlier
+escape left its `ARMED` mark in the kernel data cave and `.text` still looks open, it logs
+`hook armed and .text already open; adopting it` and returns **before** installing anything. The
+previous `diag17` run had armed it minutes earlier, so `diag18` inherited that state and skipped the
+install entirely. The run therefore measured a rest-mode cycle with **nothing armed**, not arm-late.
+
+Fix, so diagnostics cannot inherit state: for `PL5_DIAG >= 10` the adopt shortcut is bypassed and
+the escape is forced. Re-run `diag18` on a fresh snapshot for a valid measurement.

@@ -98,7 +98,7 @@ int main(void) {
          "blinking and then wakeup to Linux :)\n");
 #endif
 
-#if PL5_DIAG >= 10
+#if PL5_DIAG >= 10 && PL5_DIAG < 18
   /* P4 bisection: never enter standby; just prove how long the install survives. */
   notify("13.60: P4 diag=%d — install done; heartbeat, standby SKIPPED\n", PL5_DIAG);
   for (int __i = 0; __i < 20; __i++) {
@@ -111,6 +111,10 @@ int main(void) {
   if (fw >= 0x0800) {
     /* High-FW: use the real standby path (Byepervisor design) so the TLB is
      * actually invalidated across the suspend/resume cycle. */
+#if PL5_DIAG == 18
+    if (is_1360)
+      hv_defeat_1360_arm();   /* arm-late: hijack live only across the sleep */
+#endif
     notify("high-FW: sceSystemStateMgrEnterStandby()...\n");
     sceSystemStateMgrEnterStandby();
   } else {

