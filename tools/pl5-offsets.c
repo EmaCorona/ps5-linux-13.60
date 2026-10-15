@@ -155,6 +155,120 @@ static uint64_t va_leaf_entry(uint64_t va, int *is_leaf) {
   return 0;
 }
 
+/* Translate a kernel VA to a physical address with the page tables, walking
+ * from g_cr3 through the dmap (the same access pattern used for every page
+ * table read above). Handles 1 GiB / 2 MiB huge leaves and 4 KiB pages. */
+static uint64_t va_to_pa(uint64_t va, int *is_huge) {
+  uint64_t table_phys = g_cr3;
+  if (is_huge)
+    *is_huge = 0;
+  for (int level = 0; level < 4; level++) {
+    int shift = 39 - level * 9;
+    uint64_t idx = (va >> shift) & 0x1FF;
+    uint64_t entry = pv_rd64(g_dmap + (table_phys & PA_MASK) + idx * 8);
+    if (!(entry & 1))
+      return 0;
+    if ((level == 1 || level == 2) && (entry & (1ULL << 7))) {
+      uint64_t mask = (level == 1) ? 0x3FFFFFFFULL : 0x1FFFFFULL;
+      if (is_huge)
+        *is_huge = 1;
+      return (entry & PA_MASK & ~mask) | (va & mask);
+    }
+    if (level == 3)
+      return (entry & PA_MASK) | (va & 0xFFF);
+    table_phys = entry & PA_MASK;
+  }
+  return 0;
+}
+
+/* Read `n` bytes at physical `pa` through the direct map. */
+static int pread_dmap(uint64_t pa, void *dst, size_t n) {
+  uint8_t *d = dst;
+  while (n) {
+    uint32_t chunk = (n > DUMP_CHUNK) ? DUMP_CHUNK : (uint32_t)n;
+    if (kernel_copyout((intptr_t)(g_dmap + pa), d, chunk) != 0)
+      return -1;
+    pa += chunk;
+    d += chunk;
+    n -= chunk;
+  }
+  return 0;
+}
+
+/* Read kernel memory through the direct map instead of through its own kernel
+ * VA. Reading kernel .text via its VA faults on the XOTEXT mapping -- the TLB
+ * can still hold an execute-only entry even after the escape and a rest-mode
+ * cycle -- and that fault powers the console off. The dmap alias of the same
+ * physical frame is ordinary RW memory, and it needs no rest mode at all. */
+static int kread_safe(uint64_t va, void *dst, size_t n) {
+  uint8_t *d = dst;
+  while (n) {
+    int huge = 0;
+    uint64_t pa = va_to_pa(va, &huge);
+    if (!pa)
+      return -1;
+    uint64_t page = huge ? 0x200000ULL : 0x1000ULL;
+    uint64_t page_off = va & (page - 1);
+    uint64_t chunk = page - page_off;
+    if (chunk > n)
+      chunk = n;
+    if (chunk > DUMP_CHUNK)
+      chunk = DUMP_CHUNK;
+    if (kernel_copyout((intptr_t)(g_dmap + pa), d, (uint32_t)chunk) != 0)
+      return -1;
+    va += chunk;
+    d += chunk;
+    n -= (size_t)chunk;
+  }
+  return 0;
+}
+
+/* Same as dump_region() but reading through the direct map. */
+static int dump_region_dmap(const char *path, uint64_t pa, uint64_t cap,
+                            uint64_t *actual) {
+  static uint8_t buf[0x10000];
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0)
+    return -1;
+
+  uint64_t done = 0;
+  while (done < cap) {
+    uint32_t want = (cap - done > DUMP_CHUNK) ? DUMP_CHUNK : (uint32_t)(cap - done);
+    if (pread_dmap(pa + done, buf, want) != 0)
+      break;
+    if (write(fd, buf, want) != (ssize_t)want)
+      break;
+    done += want;
+  }
+  close(fd);
+  if (actual)
+    *actual = done;
+  return 0;
+}
+
+/* Same as dump_region() but reading a kernel VA through the direct map. */
+static int dump_region_safe(const char *path, uint64_t va, uint64_t cap,
+                            uint64_t *actual) {
+  static uint8_t buf[0x10000];
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0)
+    return -1;
+
+  uint64_t done = 0;
+  while (done < cap) {
+    uint32_t want = (cap - done > DUMP_CHUNK) ? DUMP_CHUNK : (uint32_t)(cap - done);
+    if (kread_safe(va + done, buf, want) != 0)
+      break;
+    if (write(fd, buf, want) != (ssize_t)want)
+      break;
+    done += want;
+  }
+  close(fd);
+  if (actual)
+    *actual = done;
+  return 0;
+}
+
 /* Confirm kernel .text is actually readable BEFORE reading it, so a surprise can
  * never fault the kernel -- worst case the .text dump is skipped. The
  * Byepervisor escape clears XOTEXT (bit 58) on the .text PTEs and the
@@ -395,7 +509,7 @@ static void scan_kernel(void) {
 
   for (uint64_t pos = 0; pos < size;) {
     uint32_t want = (size - pos > 0x40000) ? 0x40000 : (uint32_t)(size - pos);
-    if (kernel_copyout((intptr_t)(base + pos), buf + carry, want) != 0)
+    if (kread_safe(base + pos, buf + carry, want) != 0)
       break;
     uint32_t have = carry + want;
 
@@ -422,10 +536,11 @@ static void scan_kernel(void) {
 /* -------------------------------------------------------------------- main */
 
 static int find_hv(uint64_t dmap_base, uint64_t *hv_out) {
+  (void)dmap_base; /* the authoritative dmap is g_dmap (from init_paging) */
   for (unsigned i = 0; i < sizeof(hv_candidates) / sizeof(hv_candidates[0]); i++) {
     char anchor[8] = {0};
-    if (kernel_copyout((intptr_t)(dmap_base + hv_candidates[i] + HV_ANCHOR_OFF),
-                       anchor, sizeof(anchor)) != 0)
+    if (pread_dmap(hv_candidates[i] + HV_ANCHOR_OFF, anchor,
+                   sizeof(anchor)) != 0)
       continue;
     if (memcmp(anchor, "hvcGF", HV_ANCHOR_LEN) == 0) {
       *hv_out = hv_candidates[i];
@@ -469,34 +584,38 @@ int pl5_dump_offsets(void) {
   snprintf(p_rep, sizeof(p_rep), "%s/report.txt", dir);
   snprintf(p_zip, sizeof(p_zip), PL5_OUT_ROOT "/pl5-%04x.zip", fwv);
 
-  /* Derive the kernel pmap and confirm kernel .text is actually readable before
-   * touching it, so a surprise can never fault the kernel -- worst case the
-   * .text dump is simply skipped. On the supported path this payload has just
-   * come back from rest mode, where the Byepervisor escape left XOTEXT cleared
-   * on the .text PTEs (see text_readable()). */
+  /* Derive the kernel pmap, then decide whether kernel memory can be read at
+   * all. .text is read through the DIRECT MAP (translate the VA with the page
+   * tables, read the physical frame): reading it through its own VA faults on
+   * the XOTEXT mapping, and that fault powers the console off. No rest mode is
+   * required for this path. */
   {
     int init_ok = (init_paging() == 0);
-    int leaf = 0;
-    uint64_t entry = 0;
-    if (init_ok)
+    int leaf = 0, huge = 0;
+    uint64_t entry = 0, kpa = 0;
+    if (init_ok) {
       entry = va_leaf_entry(ktext, &leaf);
-    g_text_ok = init_ok && text_readable();
+      kpa = va_to_pa(ktext, &huge);
+    }
+    g_text_ok = init_ok && (kpa != 0);
     plog("[pl5-offsets] fw=0x%04x ktext=%#llx kdata=%#llx\n", fwv,
          (unsigned long long)ktext,
          (unsigned long long)KERNEL_ADDRESS_DATA_BASE);
-    plog("[pl5-offsets] init_ok=%d cr3=%#llx dmap=%#llx leaf=%d "
-         "sentinel=%#llx present=0x%llx xotext=%llu nx=%llu ps=%llu -> %s\n",
+    plog("[pl5-offsets] init_ok=%d cr3=%#llx dmap=%#llx leaf=%d pa=%#llx "
+         "huge=%d sentinel=%#llx present=0x%llx xotext=%llu nx=%llu ps=%llu "
+         "-> %s\n",
          init_ok, (unsigned long long)g_cr3, (unsigned long long)g_dmap, leaf,
-         (unsigned long long)entry, (unsigned long long)(entry & 1),
+         (unsigned long long)kpa, huge, (unsigned long long)entry,
+         (unsigned long long)(entry & 1),
          (unsigned long long)((entry >> 58) & 1),
          (unsigned long long)((entry >> 63) & 1),
          (unsigned long long)((entry >> 7) & 1),
-         g_text_ok ? "READABLE" : "unavailable");
+         g_text_ok ? "READABLE-VIA-DMAP" : "unavailable");
   }
 
   uint64_t got_text = 0, got_data = 0, got_hv = 0;
   if (g_text_ok)
-    dump_region(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
+    dump_region_safe(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
   plog("[pl5-offsets] text_dump=0x%llx bytes\n", (unsigned long long)got_text);
   uint64_t kdata = KERNEL_ADDRESS_DATA_BASE;
   dump_region(p_data, kdata, PL5_KERNEL_DATA_SIZE, &got_data);
@@ -516,12 +635,15 @@ int pl5_dump_offsets(void) {
     dmap_base = DMAP_BASE | ((uint64_t)ml4 << 39) | ((uint64_t)pdp << 30);
   }
 
+  plog("[pl5-offsets] dmap reconciliation: init_paging=%#llx "
+       "DMPML4I/DMPDPI-based=%#llx\n",
+       (unsigned long long)g_dmap, (unsigned long long)dmap_base);
   int hv_ok = (find_hv(dmap_base, &hv_pa) == 0);
   printf("[pl5-offsets] dmap=0x%llx hv_base=0x%llx (%s)\n",
          (unsigned long long)dmap_base, (unsigned long long)hv_pa,
          hv_ok ? "found" : "not found");
   if (hv_ok) {
-    dump_region(p_hv, dmap_base + hv_pa, HV_DUMP_MAX, &got_hv);
+    dump_region_dmap(p_hv, hv_pa, HV_DUMP_MAX, &got_hv);
     printf("[pl5-offsets] hv dump: 0x%llx bytes\n",
            (unsigned long long)got_hv);
   }
@@ -549,7 +671,7 @@ int pl5_dump_offsets(void) {
     case PL5_MODE_SIG: {
       uint8_t tmp[PL5_SIG_MAX];
       if (g_text_ok &&
-          kernel_copyout((intptr_t)(ktext + e->expected), tmp, e->sig_len) == 0 &&
+          kread_safe(ktext + e->expected, tmp, e->sig_len) == 0 &&
           memcmp(tmp, e->sig, e->sig_len) == 0) {
         resolved[i] = e->expected;
         how[i] = HOW_VERIFIED;
