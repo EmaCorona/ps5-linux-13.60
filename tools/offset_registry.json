@@ -17,63 +17,519 @@
     "text_length": "0xCC0000"
   },
   "entries": [
-    {"field": "IOMMU_SOFTC", "namespace": "STRUCT_OFF", "class": "UNKNOWN", "value": "0x0", "used_by": "none (escape)", "provenance": "not covered by the capture", "verified_by": "none"},
-    {"field": "VMSPACE_VM_VMID", "namespace": "STRUCT_OFF", "class": "KNOWN_STATIC", "value": "0x1E4", "used_by": "escape (VM space)", "provenance": "Byepervisor-Reborn include/offsets/13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "VMSPACE_VM_PMAP", "namespace": "STRUCT_OFF", "class": "KNOWN_STATIC", "value": "0x1D8", "used_by": "escape (VM space)", "provenance": "Byepervisor 13_60.h; stable across 13.xx", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "DATA_BASE_GVMSPACE", "namespace": "STRUCT_OFF", "class": "UNKNOWN", "value": "0x0", "used_by": "none (escape)", "provenance": "not covered by the capture", "verified_by": "none"},
-    {"field": "HOOK_ACPI_WAKEUP_MACHDEP", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x3913B0", "used_by": "escape (khook target)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_CODE_CAVE", "namespace": "NONE", "class": "NOT_REQUIRED_FOR_1360_PATH", "value": "0x0", "used_by": "legacy vector only", "provenance": "0x2D39000 is Byepervisor's KERNEL_SYM_DATA_CAVE: data, not executable code", "verified_by": "tools/verify_off_1360_dump.py (KERNEL_CODE_CAVE must stay 0)"},
-    {"field": "FUN_PRINTF", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x4ADD60", "used_by": "diagnostics", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360_dump.py (entry shape only, identity not proven)"},
-    {"field": "FUN_HV_IOMMU_SET_BUFFERS", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x4FABD0", "used_by": "escape (IOMMU)", "provenance": "capture: signature \"hv_iommu_set_guest_buffers completion error:%d\"", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "FUN_HV_IOMM_WAIT_COMPLETION", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x4F9030", "used_by": "escape (IOMMU)", "provenance": "capture: signature \"IOMMU: wait command completion timed out\"", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "FUN_SMP_RENDEZVOUS", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0xB04440", "used_by": "phase B rendezvous", "provenance": "capture: strict entry referencing \"smp rendezvous\"", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "FUN_SMP_NO_RENDEVOUS_BARRIER", "namespace": "KTEXT_REL", "class": "UNKNOWN", "value": "0x0", "used_by": "optional (shellcode can supply a no-op)", "provenance": "not identified", "verified_by": "none"},
-    {"field": "HV_CODE_CAVE_PA", "namespace": "PHYSICAL", "class": "NOT_REQUIRED_FOR_1360_PATH", "value": "0x0", "used_by": "legacy vector only", "provenance": "the Byepervisor vector runs from startup_mp, not a fixed VMEXIT cave", "verified_by": "tools/verify_takeover_param.py"},
-    {"field": "HV_HANDLE_VMEXIT_PA", "namespace": "PHYSICAL", "class": "NOT_REQUIRED_FOR_1360_PATH", "value": "0x0", "used_by": "legacy vector only", "provenance": "same as HV_CODE_CAVE_PA", "verified_by": "tools/verify_takeover_param.py"},
-    {"field": "KERNEL_UART_OVERRIDE", "namespace": "KTEXT_REL", "class": "UNKNOWN", "value": "0x0", "used_by": "none (diagnostics)", "provenance": "not located", "verified_by": "none"},
-    {"field": "KERNEL_CFI_CHECK", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x44F8C0", "used_by": "phase A CFI patch", "provenance": "capture: strict entry holding \"cfi_check_fail: data %p, caller %p, callee %p\"", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "G_VBIOS", "namespace": "KDATA_REL", "class": "DISPUTED", "value": "0x3DDB9F0", "used_by": "display bring-up (Linux boot)", "provenance": "this table claims the capture; docs/1360-offsets-from-dump.md lists G_VBIOS as not covered", "verified_by": "none - sources contradict, see docs/1360-offsets-from-dump.md"},
-    {"field": "FUN_TRANSMITTER_CONTROL", "namespace": "KTEXT_REL", "class": "UNKNOWN", "value": "0x0", "used_by": "display bring-up (Linux boot)", "provenance": "not located", "verified_by": "none"},
-    {"field": "FUN_MP3_INITIALIZE", "namespace": "KTEXT_REL", "class": "UNKNOWN", "value": "0x0", "used_by": "audio (Linux boot)", "provenance": "not located", "verified_by": "none"},
-    {"field": "FUN_MP3_INVOKE", "namespace": "KTEXT_REL", "class": "UNKNOWN", "value": "0x0", "used_by": "audio (Linux boot)", "provenance": "not located", "verified_by": "none"},
-    {"field": "PS5_WIFI_FW_OFFSET", "namespace": "NONE", "class": "UNKNOWN", "value": "0x0", "used_by": "Wi-Fi firmware blob", "provenance": "not located", "verified_by": "none"},
-    {"field": "PS5_WIFI_FW_SIZE", "namespace": "NONE", "class": "UNKNOWN", "value": "0x0", "used_by": "Wi-Fi firmware blob", "provenance": "not located", "verified_by": "none"},
-    {"field": "GAD_ADD_RSP_28_POP_RBP_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x25213E", "used_by": "legacy ROP / escape", "provenance": "capture bytes 48 83 c4 28 f3 c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_IRETQ", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x257B3D", "used_by": "escape", "provenance": "capture bytes 48 cf", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RAX_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2912A1", "used_by": "escape", "provenance": "capture bytes 58 c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RCX_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2918B2", "used_by": "escape", "provenance": "capture bytes 59 c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RDI_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x28CE6D", "used_by": "escape", "provenance": "capture bytes 5f c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RSI_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x34CB91", "used_by": "escape", "provenance": "capture bytes 5e c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RDX_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2A0F7B", "used_by": "escape", "provenance": "capture bytes 5a c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_POP_RSP_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x291C42", "used_by": "escape", "provenance": "capture bytes 5c c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_WRMSR_RET", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x255034", "used_by": "legacy ROP only", "provenance": "capture bytes 0f 30 c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "KERNEL_SYM_DMPML4I", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3B49294", "used_by": "escape (paging)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_DMPDPI", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3B49298", "used_by": "escape (paging)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_PML4PML4I", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3B47E4C", "used_by": "escape (paging)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_SYS_GETUID", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2A8D60", "used_by": "escape (kernel R/W chain)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_HV_MP_STARTUP_CALL", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0xC16EE0", "used_by": "escape (khook site)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_MP_STARTUP_INIT_VECTOR", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x269FB8", "used_by": "escape (AP bring-up)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "KERNEL_SYM_PMAP_STORE", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3B48FF8", "used_by": "escape (paging)", "provenance": "Byepervisor-verbatim; the capture holds a kernel VA (0xffffffff9f73441a) at 0x3B48FF8, while 0x3B24FF8 holds 0x00", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "KERNEL_SYM_DATA_CAVE", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x2D39000", "used_by": "escape marker storage", "provenance": "Byepervisor 13_60.h; kernel-data namespace (>= .text length)", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "HV_SYM_HEAP_BASE", "namespace": "HV_REL", "class": "KNOWN_STATIC", "value": "0x83028", "used_by": "none directly - never add to ktext", "provenance": "Byepervisor 13_60.h; HV image relative", "verified_by": "tools/verify_off_1360_dump.py (must stay out of ktext)"},
-    {"field": "HV_SYM_PCPUS", "namespace": "HV_REL", "class": "KNOWN_STATIC", "value": "0x82A60", "used_by": "none directly - never add to ktext", "provenance": "Byepervisor 13_60.h; HV image relative", "verified_by": "tools/verify_off_1360_dump.py (must stay out of ktext)"},
-    {"field": "HV_LOADER_PA_REGULAR", "namespace": "PHYSICAL", "class": "KNOWN_STATIC", "value": "0x062800000", "used_by": "escape (HV carveout)", "provenance": "not firmware-specific; same value as 13.20", "verified_by": "docs/1360-port-status.md"},
-    {"field": "HV_LOADER_PA_PRO", "namespace": "PHYSICAL", "class": "KNOWN_STATIC", "value": "0x8e0800000", "used_by": "escape (HV carveout, pro SoC)", "provenance": "not firmware-specific; same value as 13.20", "verified_by": "docs/1360-port-status.md"},
-    {"field": "GAD_POP_R8", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0xB8CA6D", "used_by": "escape", "provenance": "capture bytes 47 58 c3", "verified_by": "tools/verify_off_1360_dump.py"},
-    {"field": "GAD_STORE_RCX_R8", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x474389", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_OR_RCX_EAX", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x321EA0", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_SET_DR7", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0xA07BA6", "used_by": "hook (DR7 handling)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_ST_RCX_RAX", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2BB28F", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_STORE_RDI8_RCX", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x32693F", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_ST_RCX_RDX", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x82B915", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_MOV_RAX_RSI", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x8E3A44", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_MOV_RAX_RDI", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0xBECDEA", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_REP_MOVSB", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x25D027", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_CLD", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x30644F", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_RET_TRAMP", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2912A2", "used_by": "escape", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "GAD_DBREG_RESUME", "namespace": "KTEXT_REL", "class": "KNOWN_STATIC", "value": "0x2529D8", "used_by": "hook (resume)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "IDT", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3BB4300", "used_by": "hook (IDT/IST)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
-    {"field": "COMMON_TSS", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3BB6FE0", "used_by": "hook (IST)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"}
+    {
+      "field": "IOMMU_SOFTC",
+      "namespace": "KTEXT_REL",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "none (escape)",
+      "provenance": "address, not a struct offset: consumed as ktext+offset / get_offset_va() (source/hw/iommu.c:9, source/boot/prepare_resume.c:139). As STRUCT_OFF the checker would have REFUSED the correct value (STRUCT_OFF must be < 0x1000). No candidate identified: the IOMMU driver functions reference several globals but nothing names the softc",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "VMSPACE_VM_VMID",
+      "namespace": "STRUCT_OFF",
+      "class": "KNOWN_STATIC",
+      "value": "0x1E4",
+      "used_by": "escape (VM space)",
+      "provenance": "Byepervisor-Reborn include/offsets/13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "VMSPACE_VM_PMAP",
+      "namespace": "STRUCT_OFF",
+      "class": "KNOWN_STATIC",
+      "value": "0x1D8",
+      "used_by": "escape (VM space)",
+      "provenance": "Byepervisor 13_60.h; stable across 13.xx",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "DATA_BASE_GVMSPACE",
+      "namespace": "STRUCT_OFF",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "none (escape)",
+      "provenance": "namespace left STRUCT_OFF on purpose until the consumer's contract is known: source/hw/gpu.c:295 stores env_offset.DATA_BASE_GVMSPACE raw into the ioctl struct WITHOUT adding ktext, while the 3.00 table held 0x06423F80 (an offset). Either it is already an address or gpu.c misses a ktext+; the capture does not settle it",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "HOOK_ACPI_WAKEUP_MACHDEP",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3913B0",
+      "used_by": "escape (khook target)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_CODE_CAVE",
+      "namespace": "NONE",
+      "class": "NOT_REQUIRED_FOR_1360_PATH",
+      "value": "0x0",
+      "used_by": "legacy vector only",
+      "provenance": "0x2D39000 is Byepervisor's KERNEL_SYM_DATA_CAVE: data, not executable code",
+      "verified_by": "tools/verify_off_1360_dump.py (KERNEL_CODE_CAVE must stay 0)"
+    },
+    {
+      "field": "FUN_PRINTF",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x4ADD60",
+      "used_by": "diagnostics",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360_dump.py (entry shape only, identity not proven)"
+    },
+    {
+      "field": "FUN_HV_IOMMU_SET_BUFFERS",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x4FABD0",
+      "used_by": "escape (IOMMU)",
+      "provenance": "capture: signature \"hv_iommu_set_guest_buffers completion error:%d\"",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "FUN_HV_IOMM_WAIT_COMPLETION",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x4F9030",
+      "used_by": "escape (IOMMU)",
+      "provenance": "capture: signature \"IOMMU: wait command completion timed out\"",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "FUN_SMP_RENDEZVOUS",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0xB04440",
+      "used_by": "phase B rendezvous",
+      "provenance": "capture: strict entry referencing \"smp rendezvous\"",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "FUN_SMP_NO_RENDEVOUS_BARRIER",
+      "namespace": "KTEXT_REL",
+      "class": "NOT_REQUIRED_FOR_1360_PATH",
+      "value": "0x0",
+      "used_by": "optional (shellcode can supply a no-op)",
+      "provenance": "not required in practice: the takeover blob supplies its own no-op setup/teardown. The confirmed bare ret is GAD_RET_TRAMP 0x2912A2 (upstream 13_60.h: KERNEL_GADGET_RET_TRAMP=0x2912A2 // ret; our capture byte there is c3). The kernel's own barrier is NOT identified and cannot be derived from call sites: the capture has 0 direct calls and 0 address-taken references to FUN_SMP_RENDEZVOUS 0xB04440 (measured)",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "HV_CODE_CAVE_PA",
+      "namespace": "PHYSICAL",
+      "class": "NOT_REQUIRED_FOR_1360_PATH",
+      "value": "0x0",
+      "used_by": "legacy vector only",
+      "provenance": "the Byepervisor vector runs from startup_mp, not a fixed VMEXIT cave",
+      "verified_by": "tools/verify_takeover_param.py"
+    },
+    {
+      "field": "HV_HANDLE_VMEXIT_PA",
+      "namespace": "PHYSICAL",
+      "class": "NOT_REQUIRED_FOR_1360_PATH",
+      "value": "0x0",
+      "used_by": "legacy vector only",
+      "provenance": "same as HV_CODE_CAVE_PA",
+      "verified_by": "tools/verify_takeover_param.py"
+    },
+    {
+      "field": "KERNEL_UART_OVERRIDE",
+      "namespace": "KTEXT_REL",
+      "class": "NOT_REQUIRED_FOR_1360_PATH",
+      "value": "0x0",
+      "used_by": "none (diagnostics)",
+      "provenance": "read only by the legacy prepare_resume() path, which fw >= 0x0800 never calls (docs/BOOT-REQUIREMENTS-1360.md). Not identified in the capture; not needed for the 13.60 path",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "KERNEL_CFI_CHECK",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x44F8C0",
+      "used_by": "phase A CFI patch",
+      "provenance": "capture: strict entry holding \"cfi_check_fail: data %p, caller %p, callee %p\"",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "G_VBIOS",
+      "namespace": "KDATA_REL",
+      "class": "DISPUTED",
+      "value": "0x3DDB9F0",
+      "used_by": "display bring-up (Linux boot)",
+      "provenance": "this table claims the capture; docs/1360-offsets-from-dump.md lists G_VBIOS as not covered",
+      "verified_by": "none - sources contradict, see docs/1360-offsets-from-dump.md"
+    },
+    {
+      "field": "FUN_TRANSMITTER_CONTROL",
+      "namespace": "KTEXT_REL",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "display bring-up (Linux boot)",
+      "provenance": "NOT derivable from the capture alone: its display strings live outside kernel .text and are not referenced from it, and the 13.20 value 0xC01ED0 is not a function entry in 13.60 (measured: entry=False, body 5cfbccff). Needs a neighbouring-firmware image for byte matching. G2, not the kernel entry",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "FUN_MP3_INITIALIZE",
+      "namespace": "KTEXT_REL",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "audio (Linux boot)",
+      "provenance": "NOT derivable from the capture alone: same measurement; 13.20 0xA0B3E0 is not an entry in 13.60 (body d031ff31). G2, not the kernel entry",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "FUN_MP3_INVOKE",
+      "namespace": "KTEXT_REL",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "audio (Linux boot)",
+      "provenance": "NOT derivable from the capture alone: 13.20 0xA0A9D0 is not an entry in 13.60 (body b7700100). G2, not the kernel entry",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "PS5_WIFI_FW_OFFSET",
+      "namespace": "NONE",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "Wi-Fi firmware blob",
+      "provenance": "not derivable from the capture alone: it is a data-region address of a firmware blob, and candidates exist but nothing names it (7.61 used a 0x1655800-relative address). Absence is handled at runtime: hw/firmware.c:97 fails gracefully with a message",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "PS5_WIFI_FW_SIZE",
+      "namespace": "NONE",
+      "class": "UNKNOWN",
+      "value": "0x0",
+      "used_by": "Wi-Fi firmware blob",
+      "provenance": "same class as PS5_WIFI_FW_OFFSET (a blob byte count: 7.61 497636, 3.00 492304). Not identified in 13.60 and not required for the escape",
+      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+    },
+    {
+      "field": "GAD_ADD_RSP_28_POP_RBP_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x25213E",
+      "used_by": "legacy ROP / escape",
+      "provenance": "capture bytes 48 83 c4 28 f3 c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_IRETQ",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x257B3D",
+      "used_by": "escape",
+      "provenance": "capture bytes 48 cf",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RAX_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2912A1",
+      "used_by": "escape",
+      "provenance": "capture bytes 58 c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RCX_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2918B2",
+      "used_by": "escape",
+      "provenance": "capture bytes 59 c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RDI_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x28CE6D",
+      "used_by": "escape",
+      "provenance": "capture bytes 5f c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RSI_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x34CB91",
+      "used_by": "escape",
+      "provenance": "capture bytes 5e c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RDX_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2A0F7B",
+      "used_by": "escape",
+      "provenance": "capture bytes 5a c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_POP_RSP_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x291C42",
+      "used_by": "escape",
+      "provenance": "capture bytes 5c c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_WRMSR_RET",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x255034",
+      "used_by": "legacy ROP only",
+      "provenance": "capture bytes 0f 30 c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "KERNEL_SYM_DMPML4I",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3B49294",
+      "used_by": "escape (paging)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_DMPDPI",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3B49298",
+      "used_by": "escape (paging)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_PML4PML4I",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3B47E4C",
+      "used_by": "escape (paging)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_SYS_GETUID",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2A8D60",
+      "used_by": "escape (kernel R/W chain)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_HV_MP_STARTUP_CALL",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0xC16EE0",
+      "used_by": "escape (khook site)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_MP_STARTUP_INIT_VECTOR",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x269FB8",
+      "used_by": "escape (AP bring-up)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "KERNEL_SYM_PMAP_STORE",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3B48FF8",
+      "used_by": "escape (paging)",
+      "provenance": "Byepervisor-verbatim; the capture holds a kernel VA (0xffffffff9f73441a) at 0x3B48FF8, while 0x3B24FF8 holds 0x00",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "KERNEL_SYM_DATA_CAVE",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2D39000",
+      "used_by": "escape marker storage",
+      "provenance": "Byepervisor 13_60.h; kernel-data namespace (>= .text length)",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "HV_SYM_HEAP_BASE",
+      "namespace": "HV_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x83028",
+      "used_by": "none directly - never add to ktext",
+      "provenance": "Byepervisor 13_60.h; HV image relative",
+      "verified_by": "tools/verify_off_1360_dump.py (must stay out of ktext)"
+    },
+    {
+      "field": "HV_SYM_PCPUS",
+      "namespace": "HV_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x82A60",
+      "used_by": "none directly - never add to ktext",
+      "provenance": "Byepervisor 13_60.h; HV image relative",
+      "verified_by": "tools/verify_off_1360_dump.py (must stay out of ktext)"
+    },
+    {
+      "field": "HV_LOADER_PA_REGULAR",
+      "namespace": "PHYSICAL",
+      "class": "KNOWN_STATIC",
+      "value": "0x062800000",
+      "used_by": "escape (HV carveout)",
+      "provenance": "not firmware-specific; same value as 13.20",
+      "verified_by": "docs/1360-port-status.md"
+    },
+    {
+      "field": "HV_LOADER_PA_PRO",
+      "namespace": "PHYSICAL",
+      "class": "KNOWN_STATIC",
+      "value": "0x8e0800000",
+      "used_by": "escape (HV carveout, pro SoC)",
+      "provenance": "not firmware-specific; same value as 13.20",
+      "verified_by": "docs/1360-port-status.md"
+    },
+    {
+      "field": "GAD_POP_R8",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0xB8CA6D",
+      "used_by": "escape",
+      "provenance": "capture bytes 47 58 c3",
+      "verified_by": "tools/verify_off_1360_dump.py"
+    },
+    {
+      "field": "GAD_STORE_RCX_R8",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x474389",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_OR_RCX_EAX",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x321EA0",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_SET_DR7",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0xA07BA6",
+      "used_by": "hook (DR7 handling)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_ST_RCX_RAX",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2BB28F",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_STORE_RDI8_RCX",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x32693F",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_ST_RCX_RDX",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x82B915",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_MOV_RAX_RSI",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x8E3A44",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_MOV_RAX_RDI",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0xBECDEA",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_REP_MOVSB",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x25D027",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_CLD",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x30644F",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_RET_TRAMP",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2912A2",
+      "used_by": "escape",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "GAD_DBREG_RESUME",
+      "namespace": "KTEXT_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x2529D8",
+      "used_by": "hook (resume)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "IDT",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3BB4300",
+      "used_by": "hook (IDT/IST)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    },
+    {
+      "field": "COMMON_TSS",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3BB6FE0",
+      "used_by": "hook (IST)",
+      "provenance": "Byepervisor 13_60.h",
+      "verified_by": "tools/verify_off_1360.py"
+    }
   ],
   "boot_requirements": {
     "_comment": "Per field: what its absence blocks. boot_minimal = mandatory to reach the kernel entry point; phase_b = mandatory only for the post-resume takeover; optional = absence is handled by the code; none = not read on the 13.60 path. Derived from the call sites in docs/BOOT-REQUIREMENTS-1360.md: main.c skips prepare_resume() for fw >= 0x0800, so the shellcode_kernel_args writers are not on the 13.60 path.",
@@ -81,22 +537,80 @@
       "KERNEL_CFI_CHECK: also read by hv_defeat_1360.c (phase-A patch + read-back)"
     ],
     "fields": {
-      "FUN_SMP_NO_RENDEVOUS_BARRIER": {"blocks": "none", "why": "prepare_sck_args() only; the shellcode can supply a no-op"},
-      "IOMMU_SOFTC": {"blocks": "none", "why": "prepare_sck_args() / hw/iommu.c only; IOMMU setup lives in the legacy kernel shellcode"},
-      "KERNEL_UART_OVERRIDE": {"blocks": "none", "why": "prepare_sck_args() only"},
-      "KERNEL_CODE_CAVE": {"blocks": "none", "why": "prepare_sck_args() (guarded) and the legacy defeat vectors only; 0x2D39000 is kernel data"},
-      "HV_CODE_CAVE_PA": {"blocks": "none", "why": "prepare_sck_args() only; the Byepervisor vector runs from startup_mp"},
-      "HV_HANDLE_VMEXIT_PA": {"blocks": "none", "why": "prepare_sck_args() only (same as HV_CODE_CAVE_PA)"},
-      "FUN_TRANSMITTER_CONTROL": {"blocks": "none", "why": "prepare_sck_args() only; display bring-up is not on the 13.60 path"},
-      "FUN_MP3_INITIALIZE": {"blocks": "none", "why": "prepare_sck_args() only; audio is not on the 13.60 path"},
-      "FUN_MP3_INVOKE": {"blocks": "none", "why": "prepare_sck_args() only; audio is not on the 13.60 path"},
-      "PS5_WIFI_FW_OFFSET": {"blocks": "optional", "why": "dump_device_firmwares() runs for 13.60 but fails gracefully when the offset is 0 (loader.c logs 'Continuing')"},
-      "PS5_WIFI_FW_SIZE": {"blocks": "optional", "why": "same as PS5_WIFI_FW_OFFSET"},
-      "DATA_BASE_GVMSPACE": {"blocks": "none", "why": "read by gpu_init(), which has no caller in this tree"},
-      "G_VBIOS": {"blocks": "none", "why": "prepare_sck_args() only; the DISPUTED value is the open item, not the absence"}
+      "FUN_SMP_NO_RENDEVOUS_BARRIER": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; the shellcode can supply a no-op"
+      },
+      "IOMMU_SOFTC": {
+        "blocks": "none",
+        "why": "prepare_sck_args() / hw/iommu.c only; IOMMU setup lives in the legacy kernel shellcode"
+      },
+      "KERNEL_UART_OVERRIDE": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only"
+      },
+      "KERNEL_CODE_CAVE": {
+        "blocks": "none",
+        "why": "prepare_sck_args() (guarded) and the legacy defeat vectors only; 0x2D39000 is kernel data"
+      },
+      "HV_CODE_CAVE_PA": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; the Byepervisor vector runs from startup_mp"
+      },
+      "HV_HANDLE_VMEXIT_PA": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only (same as HV_CODE_CAVE_PA)"
+      },
+      "FUN_TRANSMITTER_CONTROL": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; display bring-up is not on the 13.60 path"
+      },
+      "FUN_MP3_INITIALIZE": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; audio is not on the 13.60 path"
+      },
+      "FUN_MP3_INVOKE": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; audio is not on the 13.60 path"
+      },
+      "PS5_WIFI_FW_OFFSET": {
+        "blocks": "optional",
+        "why": "dump_device_firmwares() runs for 13.60 but fails gracefully when the offset is 0 (loader.c logs 'Continuing')"
+      },
+      "PS5_WIFI_FW_SIZE": {
+        "blocks": "optional",
+        "why": "same as PS5_WIFI_FW_OFFSET"
+      },
+      "DATA_BASE_GVMSPACE": {
+        "blocks": "none",
+        "why": "read by gpu_init(), which has no caller in this tree"
+      },
+      "G_VBIOS": {
+        "blocks": "none",
+        "why": "prepare_sck_args() only; the DISPUTED value is the open item, not the absence"
+      }
     }
   },
-  "takeover_requirements": [    {"name": "HV_VMMCALL_HANDLER_PA", "firmware": "13.60", "namespace": "PHYSICAL", "class": "UNKNOWN", "value": null, "used_by": "phase B (13.60)", "provenance": "no verified 13.60 HV image: the guest VMMCALL wrapper 0xC16A10 is a different entity", "verified_by": "none - see docs/1360-hv-pas-offline-verdict.md"},
-    {"name": "HV_VMMCALL_HANDLER_PA", "firmware": "13.20", "namespace": "PHYSICAL", "class": "KNOWN_STATIC", "value": "0x62847375", "used_by": "phase B (13.20)", "provenance": "13.20 HV image (out of scope of the 13.60 capture)", "verified_by": "hv_defeat_1320.c works on hardware"}
+  "takeover_requirements": [
+    {
+      "name": "HV_VMMCALL_HANDLER_PA",
+      "firmware": "13.60",
+      "namespace": "PHYSICAL",
+      "class": "UNKNOWN",
+      "value": null,
+      "used_by": "phase B (13.60)",
+      "provenance": "no verified 13.60 HV image: the guest VMMCALL wrapper 0xC16A10 is a different entity",
+      "verified_by": "none - see docs/1360-hv-pas-offline-verdict.md"
+    },
+    {
+      "name": "HV_VMMCALL_HANDLER_PA",
+      "firmware": "13.20",
+      "namespace": "PHYSICAL",
+      "class": "KNOWN_STATIC",
+      "value": "0x62847375",
+      "used_by": "phase B (13.20)",
+      "provenance": "13.20 HV image (out of scope of the 13.60 capture)",
+      "verified_by": "hv_defeat_1320.c works on hardware"
+    }
   ]
 }

@@ -38,7 +38,10 @@ import sys
 from pathlib import Path
 
 # --- expected facts about the input image ---------------------------------
-DEFAULT_DUMP = Path("/home/emacorona/src/ps5-dumps/k1360.bin")
+# Resolved from the environment/home: a hardcoded absolute path with a concrete
+# username breaks for every other checkout.
+DEFAULT_DUMP = Path(os.environ.get("PL5_1360_DUMP",
+                                  str(Path.home() / "src/ps5-dumps" / "k1360.bin")))
 EXPECT_SHA256 = "c3f745e25dc25ee7afef89eb418b295b6334bbefe8aa17e6886483c35d78cddd"
 TEXT_LEN = 0xCC0000          # .text spans file offsets 0x0..0xCC0000
 
