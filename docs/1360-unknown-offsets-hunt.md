@@ -157,6 +157,47 @@ before left them at zero with the note "WiFi; not needed to boot", and the only 
 is known to exist in the clear is the console's own `wlan` segment -- encrypted, behind the
 privilege blocker documented in `../docs/1360-unknown-offsets-hunt.md`.
 
+
+## Fourth pass: the remaining items, one by one (2026-10-16, late evening)
+
+**FUN_MP3_INVOKE = 0xA12D30.** The port calls it as mp3_invoke(cmd_id, req, rsp) with
+cmd 21/22, so the symbol must be a three-argument command API. 0xA12D30 is one: edi is
+stored and written into the IPC message, rsi is copied in as the request (0x1404 bytes),
+rdx is used before returning as the response. It sits exactly 0xA10 below the verified
+FUN_MP3_INITIALIZE, and 0xA10 is the same distance the 13.20 table has between those two
+symbols. My first candidate, 0xA14130, was rejected by the same test: it takes a single
+argument, so it is an internal helper.
+
+**FUN_TRANSMITTER_CONTROL = 0xC0EAA0.** off_1320.c describes this symbol as a "generic
+ATOM exec taking (int cmd, void *params)". Two independent methods agree on where it is
+now: (1) the thunk 0x39B3B0 is called with edi=0x4C -- DIG1TRANSMITTERCONTROL, the very
+constant our shellcode passes -- and rsi pointing at a struct built exactly like
+dig_transmitter_control_parameters_v1_6, from display code that logs "[av control k]";
+that thunk is `jmp 0xC0EAA0`, and 0xC0EAA0 reads edi as the command and rsi as the params
+pointer; (2) 13.20's 0xC01ED0 plus the locally measured drift +0xCBD0 (from the verified
+HV_MP_STARTUP_CALL pair) lands on exactly 0xC0EAA0. Two dead ends were rejected on the
+way: 0x69EC00/0x6A00A0 take a struct pointer in rdi, not a (cmd, params) pair, and the
+"PMD transmitter"/"SFP+"/"100baseFX" strings next to them are Ethernet, not display.
+
+**IOMMU_SOFTC: no value, and upstream stopped needing it.** The aggregated reference table
+found in the HV-Bypass repository (kernel/reference/ps5linux_offsets.c, 22 firmware blocks
+from 3.00 to 7.61) carries IOMMU_SOFTC only for 3.00-4.51 and marks it
+"// .IOMMU_SOFTC not needed" in all thirteen modern blocks. The tempting extrapolation was
+tested and rejected: the older blocks hold IOMMU_SOFTC = DATA_BASE_GVMSPACE - 0x310C9A0
+(- 0x30FC900 later) and 13.60's DATA_BASE_GVMSPACE is 0x3BAA570, which would put IOMMU_SOFTC
+at 0x0AAA570 -- inside .text, impossible for a data global. So the difference is not
+invariant across that layout change, and no value is claimed.
+
+**PS5_WIFI_FW_OFFSET / SIZE: every route tried, all negative.** Beyond the public-source
+chain already documented, the aggregated reference table covers 3.00-7.61 only and has no
+13.xx block; the offsets progress 0x1274460 (3.00) -> 0x1655800 (7.61) and the sizes
+492304 / 493000 / 493532 / 494536 / 497636, so the capture was scanned for contiguous
+high-entropy runs whose *length* matches one of those sizes (512-byte windows, thresholds
+7.5 / 7.0 / 6.5, tolerance +/-6 KB) and for entropy runs of 200-900 KB: no run matches any
+known size, and no run is bounded in a way that identifies a firmware blob. Without the
+blob's bytes or a 13.xx reference, the two fields cannot be pinned, and a guess here would
+be indistinguishable from a wrong value.
+
 ## Where to go next (in order of information gained per unit of risk)
 
 1. **A 13.20 or 7.61 kernel image with provenance.** It turns items 5–7 from
