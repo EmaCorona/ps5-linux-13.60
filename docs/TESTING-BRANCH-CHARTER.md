@@ -210,6 +210,37 @@ Confronto con il baseline `feature/13.60-support` (`3e35bd0`) su metriche oggett
 
 ---
 
+## Backlog dei test, con rischio
+
+Scala di rischio riferita a **questa console** (una PS5 13.60 con jailbreak, dove un blocco costa un
+power-cycle completo + reiniezione di helper/elfldr, e la PUP di recovery e' pronta sulla chiavetta):
+
+* **nullo** -- nessuna scrittura nel kernel;
+* **basso** -- scritture note e reversibili, gia' eseguite senza danni;
+* **medio** -- scritture che hanno gia' coinciso con un blocco, o percorso non ancora isolato;
+* **alto** -- percorso che ha ucciso i servizi, o che chiama codice kernel non verificato;
+* **molto alto** -- percorso dichiarato incompleto dal progetto stesso.
+
+| # | test | cosa verifica | scritture nel kernel | reversibile | rischio | stato |
+| --- | --- | --- | --- | --- | --- | --- |
+| T1 | ripristino jailbreak (helper + elfldr) | la console e' di nuovo pilotabile | nessuna (payload standard dell'operatore) | n/d | **nullo** | **da fare, bloccante per tutto il resto** |
+| T2 | `make verify-offsets` (read-only) | i 13 valori della tabella + stato vivo (IDT, IOMMU_SOFTC, blob WiFi) | **nessuna** | n/d | **nullo** (provato 2 volte, 17/0) | pronto |
+| T3 | `make disarm` da solo | riporta XOTEXT/RW e azzera il marker ARMED | 3264 PDE + 3264 PTE (ripristino) | si' (e' gia' l'inverso) | **basso** | funziona, ma mai provato come *azione singola* |
+| T4 | `PL5_DIAG=16` staging senza armo | l'escape si prepara **senza** installare l'hook | XOTEXT/RW + stage nel cave | si' (T3) | **medio** (e' lo stato che ha preceduto un blocco) | provato sano una volta |
+| T5 | standby + resume con staging **non armato** | isola la causa: e' lo *staging* o l'*armo* a uccidere al resume? | come T4 + ciclo S3 | parziale (il resume non e' annullabile) | **alto** | **da progettare** (stadio da scegliere: `PL5_DIAG=15` = install con `DR7=0`, l'hook non puo' scattare) |
+| T6 | WS4: discriminare `0xA14130` vs `0xA13740` | quale dei due e' l'initializer MP3 | chiamata di funzione kernel + letture | no (crea un thread) | **alto** | **rinviato**: nessun discriminatore read-only disponibile (`.text` non leggibile; il flag e' gia' 1 a console avviata) |
+| T7 | boot Linux end-to-end | il percorso completo fino a Linux | tutto quanto sopra | no | **molto alto** | **bloccato**: serve media >= 64 GB e il takeover e' incompleto (README: Linux non avvia su 13.60) |
+| T8 | verifiche offline (cattura, registro, suite) | coerenza dei dati e dei gate | **nessuna** | n/d | **nullo** | attivo, gira a ogni commit |
+
+Ordine consigliato: **T1 → T2** (nessun rischio, riporta la console a uno stato noto) → poi **T3** da sola
+(azione singola, per escludere che il disarmo sia innocuo quando e' l'unica cosa che gira) → poi decidere fra
+**T4/T5** (capire il resume) e **T6** (MP3). **T7 per ultimo**, quando il percorso e' completo.
+
+Regole applicate a ogni riga: **un payload per accensione** -> controllo di salute -> spegnimento completo;
+analisi offline di cio' che il test scrive *prima* di eseguirlo; criterio di **arresto** = se la console non
+risponde piu' o peggiora, si torna a T2 e non si ripete il test finche' non c'e' una correzione verificata
+offline.
+
 ## Appendice — Diario delle esecuzioni su questo branch
 
 | data | WS | esito | prova |
