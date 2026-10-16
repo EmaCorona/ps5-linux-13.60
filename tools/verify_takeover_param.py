@@ -84,6 +84,21 @@ def main() -> int:
         import hashlib
         print(f"      (13.20 blob sha256 {hashlib.sha256(blob).hexdigest()[:16]})")
 
+        # 4. The bytes the C side expects the blob to have written must be the
+        # bytes the blob actually contains. This ties the two halves of the
+        # takeover together: a change on either side breaks it.
+        STUB = bytes([0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                      0x0F, 0x22, 0xD8,
+                      0x48, 0xB8, 0x00, 0x30, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                      0xFF, 0xE0])
+        ok(STUB in blob,
+           "the blob writes the 25-byte stub the C side verifies (takeover_stub[])")
+
+        # The blob is written into one page of the kernel cave
+        # (g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE)), so it must fit.
+        ok(len(blob) <= 0x1000,
+           f"the blob fits its one-page staging slot ({len(blob)} <= 4096)")
+
     for good, msg in results:
         print(("PASS " if good else "FAIL ") + msg)
     bad = [m for g, m in results if not g]
