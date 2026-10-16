@@ -15,7 +15,22 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HEADER = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/13_60.h")
+
+# --structure-only runs sections 2/2b/3 (field sets, routing, guardrail
+# decisions) without the external 13_60.h, so CI can gate the table's structure
+# on every push. The default mode still requires the header: it is an external
+# artifact (Byepervisor-Reborn's 13_60.h), so an absent or unreadable input is an
+# error, not a pass.
+_args = sys.argv[1:]
+STRUCTURE_ONLY = "--structure-only" in _args
+_args = [a for a in _args if a != "--structure-only"]
+HEADER = Path(_args[0]) if _args else Path("/tmp/13_60.h")
+
+if not STRUCTURE_ONLY and not HEADER.is_file():
+    print(f"ERROR: header not found: {HEADER}", file=sys.stderr)
+    print("       pass the path to 13_60.h as argv[1], or use --structure-only.",
+          file=sys.stderr)
+    sys.exit(2)
 
 # 13_60.h comment symbol -> off_1360.c designated initializer field
 MAP = {
@@ -60,31 +75,32 @@ errors = []
 
 # ---- 1. header values vs off_1360.c -----------------------------------------
 header_vals = {}
-for line in HEADER.read_text().splitlines():
-    m = re.match(r"\s*0x([0-9A-Fa-f]+),\s*//\s*(\S+)", line)
-    if m:
-        header_vals[m.group(2)] = int(m.group(1), 16)
-
 off_src = (ROOT / "source/offsets/off_1360.c").read_text()
 off_vals = {}
 for m in re.finditer(r"\.(\w+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*,", off_src):
     off_vals[m.group(1)] = int(m.group(2), 16)
 
-for sym, fields in MAP.items():
-    if sym not in header_vals:
-        errors.append(f"13_60.h is missing expected symbol {sym}")
-        continue
-    for f in fields:
-        if f not in off_vals:
-            errors.append(f"{f} not set in off_1360.c (source: {sym})")
-        elif off_vals[f] != header_vals[sym]:
-            errors.append(
-                f"{f} mismatch: off_1360.c=0x{off_vals[f]:X} "
-                f"13_60.h({sym})=0x{header_vals[sym]:X}")
+if not STRUCTURE_ONLY:
+    for line in HEADER.read_text().splitlines():
+        m = re.match(r"\s*0x([0-9A-Fa-f]+),\s*//\s*(\S+)", line)
+        if m:
+            header_vals[m.group(2)] = int(m.group(1), 16)
 
-unmapped = set(header_vals) - set(MAP)
-if unmapped:
-    errors.append(f"13_60.h symbols not mapped: {sorted(unmapped)}")
+    for sym, fields in MAP.items():
+        if sym not in header_vals:
+            errors.append(f"13_60.h is missing expected symbol {sym}")
+            continue
+        for f in fields:
+            if f not in off_vals:
+                errors.append(f"{f} not set in off_1360.c (source: {sym})")
+            elif off_vals[f] != header_vals[sym]:
+                errors.append(
+                    f"{f} mismatch: off_1360.c=0x{off_vals[f]:X} "
+                    f"13_60.h({sym})=0x{header_vals[sym]:X}")
+
+    unmapped = set(header_vals) - set(MAP)
+    if unmapped:
+        errors.append(f"13_60.h symbols not mapped: {sorted(unmapped)}")
 
 # ---- 2. field sets ----------------------------------------------------------
 struct_src = (ROOT / "include/offsets/offsets.h").read_text()
@@ -140,7 +156,10 @@ for f in REQUIRED_NONZERO:
         errors.append(f"{f} is 0 but is required (non-placeholder) on 13.60")
 
 # ---- report ------------------------------------------------------------------
-print(f"header symbols mapped : {len(MAP)} / {len(header_vals)}")
+if STRUCTURE_ONLY:
+    print("mode                  : --structure-only (external 13_60.h not consulted)")
+else:
+    print(f"header symbols mapped : {len(MAP)} / {len(header_vals)}")
 print(f"offset_list fields    : {len(struct_fields)} total; 13.60 sets "
       f"{len(fields_1360)}, 13.20 sets {len(fields_1320)}, "
       f"same set: {fields_1320 == fields_1360}")
@@ -150,4 +169,7 @@ if errors:
     for e in errors:
         print("  -", e)
     sys.exit(1)
-print("\nPASS: off_1360.c matches 13_60.h and the offset_list layout.")
+if STRUCTURE_ONLY:
+    print("\nPASS: off_1360.c structure, routing and guardrail decisions are intact.")
+else:
+    print("\nPASS: off_1360.c matches 13_60.h and the offset_list layout.")
