@@ -194,8 +194,8 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "not derivable from the capture alone: it is a data-region address of a firmware blob, and candidates exist but nothing names it (7.61 used a 0x1655800-relative address). Absence is handled at runtime: hw/firmware.c:97 fails gracefully with a message; the blob is inside the kernel image but carries no NXP/IW620 marker (all zero occurrences), so identification would be structural only",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "no public source of the blob exists: the projects that consume it expect the user (or the distro) to supply nxp/pcieuartiw620_combo_v1.bin. Chain checked end to end 2026-10-16: the ps5-linux-image helper reads it from /efi/lib/nxp, proper-bazzite-ps5 reads it from /usr/lib/firmware/nxp, that project's base is bazzite-deck and this workstation IS bazzite-deck with no iw620 anywhere on disk, its kernel RPM (extracted from the public image layer, 721 files) carries only mlan.ko/moal.ko, the ps5-linux org has no firmware repo and linux-firmware has no such file. A structural scan of the capture found six high-entropy runs in the 300-900 KB range but none matching the 492-498 KB bracket with an NXP-style header, so no value is claimed",
+      "verified_by": "chain check 2026-10-16 (negative result, documented)"
     },
     {
       "field": "PS5_WIFI_FW_SIZE",
@@ -203,8 +203,8 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "same class as PS5_WIFI_FW_OFFSET (a blob byte count: 7.61 497636, 3.00 492304). Not identified in 13.60 and not required for the escape; the blob is inside the kernel image but carries no NXP/IW620 marker (all zero occurrences), so identification would be structural only",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "no public source of the blob exists: the projects that consume it expect the user (or the distro) to supply nxp/pcieuartiw620_combo_v1.bin. Chain checked end to end 2026-10-16: the ps5-linux-image helper reads it from /efi/lib/nxp, proper-bazzite-ps5 reads it from /usr/lib/firmware/nxp, that project's base is bazzite-deck and this workstation IS bazzite-deck with no iw620 anywhere on disk, its kernel RPM (extracted from the public image layer, 721 files) carries only mlan.ko/moal.ko, the ps5-linux org has no firmware repo and linux-firmware has no such file. A structural scan of the capture found six high-entropy runs in the 300-900 KB range but none matching the 492-498 KB bracket with an NXP-style header, so no value is claimed",
+      "verified_by": "chain check 2026-10-16 (negative result, documented)"
     },
     {
       "field": "GAD_ADD_RSP_28_POP_RBP_RET",

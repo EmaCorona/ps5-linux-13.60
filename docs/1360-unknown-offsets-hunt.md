@@ -122,6 +122,41 @@ work they block is G2 (display/audio), not the kernel entry.
 Both attempts are recorded here instead of being dressed up as progress: a guessed global
 would defeat the whole point of the registry's provenance rule.
 
+
+## Third pass: the Wi-Fi blob, followed to the end of its chain (2026-10-16, late)
+
+`hw/firmware.c` consumes `nxp/pcieuartiw620_combo_v1.bin` as `ktext + PS5_WIFI_FW_OFFSET`, so
+the blob is inside the kernel image and the two fields would follow from having its bytes.
+Followed the chain to see whether those bytes are public. They are not, and the chain is now
+documented so this is not re-attempted:
+
+1. `ps5-linux/ps5-linux-image` (docker/kernel-builder/build.sh) installs a helper
+   `ps5-stage-firmware` that expects the file at **/efi/lib/nxp/pcieuartiw620_combo_v1.bin** --
+   i.e. the user places it.
+2. `Fredolx/proper-bazzite-ps5` (system_files/usr/bin/ps5-sync-boot) copies it from
+   **/usr/lib/firmware/nxp/*iw620*** -- i.e. it assumes the distro ships it.
+3. That project builds on **ghcr.io/ublue-os/bazzite-deck:stable**, and this workstation *is*
+   bazzite-deck (`IMAGE_ID=bazzite-deck-44.20261012`). Its `/usr/lib/firmware/nxp/` holds five
+   unrelated NXP files and **no iw620**; a disk-wide search for `*iw620*` finds nothing.
+4. Its kernel image is public and was pulled: one layer, 46.5 MB, containing exactly
+   `rpms/kernel-ps5-7.1.7-1.x86_64.rpm`. All 721 files extracted: the package carries
+   `mlan.ko` and `moal.ko` and **no firmware blob**.
+5. The `ps5-linux` organisation has five repositories (loader, patches, image, tools, mwifiex)
+   and none carries firmware; kernel.org's linux-firmware has no iw620 file under any name
+   tried; nxp-imx/mwifiex publishes no firmware asset.
+
+Structural fallback, tried and also inconclusive: the expected size is bracketed by the known
+3.00 (492,304 B) and 7.61 (497,636 B) values, so the capture was scanned for contiguous
+high-entropy runs of 300-900 KB. Six candidates came back (320, 428, 432, 448, 732 and 796 KB),
+none matching the bracket and none starting with an NXP-style header (`01 00 00 00 00 d0 0c 00`
+is what the NXP helper next to it on this machine looks like). Without the real bytes the
+candidates cannot be told apart, so no value is claimed.
+
+Conclusion: the two Wi-Fi fields are not derivable from public sources. Whoever derived them
+before left them at zero with the note "WiFi; not needed to boot", and the only place the blob
+is known to exist in the clear is the console's own `wlan` segment -- encrypted, behind the
+privilege blocker documented in `../docs/1360-unknown-offsets-hunt.md`.
+
 ## Where to go next (in order of information gained per unit of risk)
 
 1. **A 13.20 or 7.61 kernel image with provenance.** It turns items 5–7 from
