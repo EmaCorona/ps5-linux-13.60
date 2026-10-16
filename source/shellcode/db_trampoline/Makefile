@@ -1,0 +1,38 @@
+ifeq ($(shell uname -m),aarch64)
+CC      = x86_64-linux-gnu-gcc
+LD      = x86_64-linux-gnu-ld
+OBJCOPY = x86_64-linux-gnu-objcopy
+else
+CC      = gcc
+LD      = ld
+OBJCOPY = objcopy
+endif
+CFLAGS  = -O2 -fno-stack-protector -ffreestanding -nostdlib -fcf-protection=none -fomit-frame-pointer -mno-sse -mno-sse2 -m64
+# The trampoline is assembled, not compiled: the shared numeric contract
+# (include/byepervisor/khook_trampoline_defs.h) is included by the assembly as well
+# as by the C headers, so both sides use the same offsets.
+CFLAGS += -I../../../include
+LDFLAGS = -T linker.ld
+TARGET  = db_trampoline.elf
+TEXT_BIN = db_trampoline.bin
+dump = db_trampoline.h
+
+SRC = db_trampoline.S
+OBJ = $(SRC:.S=.o)
+
+all: $(dump)
+
+$(TARGET): $(OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o $(TARGET)
+
+%.o: %.S
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TEXT_BIN): $(TARGET)
+	$(OBJCOPY) -O binary -j .shell_code $(TARGET) $(TEXT_BIN)
+
+clean:
+	rm -f $(OBJ) $(TARGET) $(TEXT_BIN) $(dump)
+
+$(dump): $(TEXT_BIN) ../../../scripts/bin2c.py
+	python3 ../../../scripts/bin2c.py $(TEXT_BIN) > $(dump)

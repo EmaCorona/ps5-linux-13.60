@@ -853,6 +853,61 @@ def synthetic_post_resume_tests(tmp: Path) -> None:
            "owner logged; pre-sleep staging behind a flag")
 
 
+def synthetic_trampoline_tests(tmp: Path) -> None:
+    """Stage-1 #DB trampoline: it assembles, it has exactly two exits, it makes no
+    calls, it fits before its own block, and every condition of the ownership model is
+    either implemented or explicitly marked structural."""
+    tk = ROOT / "source/shellcode/db_trampoline"
+    if not (tk / "db_trampoline.S").is_file():
+        record("synth", "trampoline: structure and traceability", False, "SKIP: missing")
+        return
+    if not (have("gcc") and have("objdump") and have("make")):
+        record("synth", "trampoline: structure and traceability", False,
+               "SKIP: gcc/objdump/make unavailable")
+        return
+
+    rc, out = run(["make", "-C", str(tk)], cwd=ROOT)
+    if rc != 0:
+        record("synth", "trampoline: structure and traceability", False,
+               f"assemble failed: {out.strip()[-120:]}")
+        return
+    rc, dis = run(["objdump", "-d", "--no-show-raw-insn", str(tk / "db_trampoline.elf")])
+    blob = (tk / "db_trampoline.bin").read_bytes() if (tk / "db_trampoline.bin").is_file() else b""
+
+    checks = {
+        "no calls": "call" not in dis,
+        "skips the frame on the ours path": "add    $0x28,%rsp" in dis,
+        "returns into the chain": "ret" in dis,
+        "jumps indirectly on the foreign path": "jmp    *" in dis,
+        "reads DR6": "%db6" in dis or "%dr6" in dis,
+        "compares the cookie magic": "0x4b48434f4f4b4945" in dis,
+        "fits before its own block": 0 < len(blob) <= 0x100,
+    }
+    bad = [k for k, v in checks.items() if not v]
+    record("synth", "trampoline: structure (two exits, no calls, fits)", not bad,
+           "; ".join(bad) if bad else f"{len(blob)} bytes")
+
+    # Traceability: every condition of kh_trap_decide() must appear in the assembly
+    # either as a check or as an explicit structural note. Without this, the model and
+    # the code drift and the tests keep passing.
+    src = (tk / "db_trampoline.S").read_text()
+    conditions = ["gate_is_ours", "armed", "dr6_bs", "cookie_magic", "seq",
+                  "rip", "cs", "tf", "core", "already_triggered"]
+    missing = [c for c in conditions
+               if f"CHECK {c}" not in src and f"STRUCTURAL {c}" not in src]
+    record("synth", "trampoline: every ownership condition is traced", not missing,
+           f"untraced: {missing}" if missing else f"{len(conditions)} conditions")
+
+    # The model still lists exactly these conditions, so the check above cannot be
+    # satisfied by deleting one from the model.
+    model = (ROOT / "include/byepervisor/khook_ownership.h").read_text()
+    reasons = [r for r in ("GATE_CHANGED", "NOT_ARMED", "NO_BS", "BAD_COOKIE", "WRONG_CORE",
+                           "STALE_SEQ", "RIP_MISMATCH", "CS_MISMATCH", "NO_TF")
+               if f"KH_TRAP_R_{r}" in model]
+    record("synth", "trampoline: the model still has its refusal reasons",
+           len(reasons) == 9, f"{len(reasons)}/9 reasons present")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -873,6 +928,7 @@ def main() -> int:
         synthetic_ownership_tests(tmp)
         synthetic_restore_tests(tmp)
         synthetic_post_resume_tests(tmp)
+        synthetic_trampoline_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]

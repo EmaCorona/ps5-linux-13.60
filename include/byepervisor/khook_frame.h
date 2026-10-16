@@ -21,27 +21,9 @@
 
 #include <stdint.h>
 
-/* What the CPU pushes for #DB (vector 1) when the gate has an IST.
- * #DB has no error code, so the frame is exactly five qwords, pushed in this
- * order (highest address first): SS, RSP, RFLAGS, CS, RIP.
- * On entry to the gate, RSP points at RIP -- the frame occupies
- * [RSP, RSP + 0x28). */
-#define KH_DB_FRAME_QWORDS 5
-#define KH_DB_FRAME_BYTES (KH_DB_FRAME_QWORDS * 8) /* 0x28 */
-
-#define KH_FRAME_RIP_OFF 0x00
-#define KH_FRAME_CS_OFF 0x08
-#define KH_FRAME_RFLAGS_OFF 0x10
-#define KH_FRAME_RSP_OFF 0x18
-#define KH_FRAME_SS_OFF 0x20
-
-/* What the pivot gadget consumes before it returns into the staged chain. */
-#define KH_PIVOT_SKIP_BYTES KH_DB_FRAME_BYTES
-
-/* RFLAGS.TF is set by the payload's own trigger; RF is what the chain sets so the
- * instruction it resumes at does not re-trigger. */
-#define KH_RFLAG_TF 0x00000100ULL
-#define KH_RFLAG_RF 0x00010000ULL
+/* The layout, the RFLAGS bits and the pivot bytes come from the shared defs file so
+ * the assembly trampoline and this header cannot disagree. */
+#include "byepervisor/khook_trampoline_defs.h"
 
 struct kh_frame {
   uint64_t rip;

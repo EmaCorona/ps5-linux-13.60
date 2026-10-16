@@ -19,10 +19,10 @@
 #include <stdint.h>
 
 #include "byepervisor/khook_frame.h"
+#include "byepervisor/khook_trampoline_defs.h"
 
-/* Written by the payload into the per-core scratch area immediately before the
- * trigger, cleared by the chain. */
-#define KH_TRAP_COOKIE_MAGIC 0x4B48434F4F4B4945ULL /* "KHCOOKIE" */
+/* The cookie magic lives in the shared defs file (the trampoline compares it in
+ * assembly). */
 
 enum kh_trap_decision {
   KH_TRAP_OURS = 0,

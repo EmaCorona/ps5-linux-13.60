@@ -48,6 +48,9 @@ BLOBS = [
     ("break_hv", "source/shellcode/break_hv/break_hv", True),
     ("hv_boot", "source/shellcode/hv_boot/hv_boot", False),
     ("takeover", "source/shellcode/hv_takeover/takeover", True),
+    # Stage-1 #DB trampoline: built and validated every build, staged into the scratch
+    # page only when the hook is armed (off by default), so it is not in the image.
+    ("db_trampoline", "source/shellcode/db_trampoline/db_trampoline", False),
 ]
 
 # Firmware provenance for the shared takeover blob. A blob carries one

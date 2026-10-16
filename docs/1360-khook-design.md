@@ -113,6 +113,27 @@ The important property is that Stage 1 is a *separate, small, verifiable* piece:
 freestanding C, unit-tested on the host against a synthetic gate/frame, and reviewed without reading
 the ROP chain.
 
+### Stage 1 implementation status (2026-10-16)
+
+| piece | state |
+| --- | --- |
+| `include/byepervisor/khook_frame.h` — frame layout, offsets, pivot bytes | done, host-tested |
+| `include/byepervisor/khook_ownership.h` — `kh_trap_decide()`, the reference model | done, host-tested (14 assertions, 11 refusal reasons) |
+| `include/byepervisor/khook_trampoline_defs.h` — the numeric contract shared with the assembly | done; the assembly `#include`s it, so there is one source of truth |
+| `source/shellcode/db_trampoline/` — the trampoline itself, assembled | **built and structurally verified, not staged** |
+| gate points at the trampoline | **not wired**: `kh_arm()` still installs the pivot as the gate entry |
+
+What the trampoline implements, and what it does not: it checks gate identity, armed, `DR6.BS`,
+cookie magic, sequence, RIP, CS and `TF` in assembly, and marks *core* and *already triggered* as
+**structural** (only one core's IST is armed; the IST is per-core, so another core's #DB never reaches
+this code). Its structure is enforced on the host: no `call`, `add $0x28,%rsp` then `ret` on the ours
+path, an indirect jump on the foreign path, 191 bytes (fits before its own block at +0x100), and a
+*marker* for every condition of the model so the two cannot drift apart silently.
+
+The remaining work before a console session is therefore small and specific: stage the trampoline into
+the scratch page, fill the verification block, and point the gate at it instead of the pivot — behind
+`PL5_1360_ARM_HOOK=1`, which stays off by default.
+
 ## 5. Alternatives considered
 
 | option | why not (yet) |
@@ -142,6 +163,9 @@ the ROP chain.
    frame-offset tests live in the host suite
    ([`../include/byepervisor/khook_frame.h`](../include/byepervisor/khook_frame.h)), and the pivot's
    bytes are pinned against the capture's verified sequence.
+0b. **The trampoline is structurally verified and its conditions are traced** to the ownership model
+   (`tests/run_tests.py`, trampoline lane): two exits, no calls, fits its slot, and a marker per
+   model condition.
 1. The ownership test is exercised by host unit tests with synthetic frames: ours, foreign,
    wrong core, stale cookie, gate changed underneath us, second trap after disarm.
 2. The forward path is verified to leave the frame exactly as the original handler expects

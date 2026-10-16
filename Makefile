@@ -85,12 +85,16 @@ SC_K_H  := source/shellcode/kernel/shellcode_kernel.h
 SC_BREAK_H := source/shellcode/break_hv/break_hv.h
 SC_BOOT_H := source/shellcode/hv_boot/hv_boot.h
 SC_TAKEOVER_H := source/shellcode/hv_takeover/takeover.h
+# Stage-1 #DB trampoline. Built and validated on every build, but only staged into the
+# scratch page when the hook is armed (PL5_1360_ARM_HOOK=1) -- so a default build
+# carries it as an artifact, not as live code.
+SC_TRAMPOLINE_H := source/shellcode/db_trampoline/db_trampoline.h
 
-all: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(BIN)
+all: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H) $(BIN)
 
 # Every generated header follows the configuration stamp, so a flag change
 # re-enters the sub-make, whose own stamp then rebuilds the blob.
-$(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H): $(PL5_CONFIG_STAMP)
+$(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H): $(PL5_CONFIG_STAMP)
 
 # Print the manifest version (read from source/manifest/manifest.c).
 version:
@@ -100,7 +104,7 @@ version:
 # escape as the main payload + enters rest mode, but on resume (XOM on kernel
 # .text now cleared) it dumps every offset to /data/pl5-<fw>.zip instead of
 # taking over / booting Linux. Same entrypoint, just -DPL5_OFFSETS_MODE.
-offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H)
+offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
 	$(CC) $(CFLAGS) -DPL5_OFFSETS_MODE $(SRC) tools/pl5-offsets.c $(LDFLAGS) \
 		-o bin/pLinux5-NG-offsets.elf
 	@echo "built bin/pLinux5-NG-offsets.elf"
@@ -123,12 +127,15 @@ $(SC_BOOT_H):
 $(SC_TAKEOVER_H):
 	$(MAKE) -C source/shellcode/hv_takeover PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW)
 
+$(SC_TRAMPOLINE_H):
+	$(MAKE) -C source/shellcode/db_trampoline
+
 $(OBJS): %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # The userland objects include the generated shellcode headers; make the
 # dependency explicit so `make -j` cannot compile them before the blobs exist.
-$(OBJS): $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(PL5_CONFIG_STAMP)
+$(OBJS): $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H) $(PL5_CONFIG_STAMP)
 
 $(BIN): $(OBJS)
 	@mkdir -p $(dir $@)
@@ -145,3 +152,4 @@ clean:
 	$(MAKE) -C source/shellcode/break_hv clean
 	$(MAKE) -C source/shellcode/hv_boot clean
 	$(MAKE) -C source/shellcode/hv_takeover clean
+	$(MAKE) -C source/shellcode/db_trampoline clean
