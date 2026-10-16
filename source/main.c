@@ -64,11 +64,20 @@ int main(void) {
   return pl5_verify_offsets();
 #endif
 
-#ifndef PL5_OFFSETS_MODE
+#if !defined(PL5_OFFSETS_MODE) && !PL5_1360_RESUME_REPORT_ONLY
   if (fetch_linux(&linux_i)) {
     notify("Something went wrong while installing linux files.\n");
     return -1;
   }
+#endif
+#if PL5_1360_RESUME_REPORT_ONLY
+  /* T5 never boots Linux: it asks whether the *escape staging* survives the sleep.
+   * fetch_linux() would drag the images in for a boot that never happens, and it
+   * also calls dump_device_firmwares() -- a disk write that has nothing to do with
+   * this diagnostic. Measured: without this skip the payload died at "File bzImage
+   * not found at default paths" *before* the escape, so the test never reached its
+   * subject and the console never slept. */
+  notify("13.60: report-only build: Linux install skipped (T5 never boots).\n");
 #endif
 
   int is_1320 = 0;

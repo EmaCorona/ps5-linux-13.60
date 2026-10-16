@@ -334,6 +334,16 @@ def synthetic_make_flag_tests() -> None:
     record("synth", "t5: report-only flag is fail-closed and off by default",
            guard and default_off, f"guard={guard} default_off={default_off}")
 
+    # T5 asks whether the escape staging survives the sleep, so the report-only
+    # build must not drag the Linux images in first. Measured on hardware: without
+    # this guard the payload died at "File bzImage not found at default paths"
+    # before the escape, so the test never reached its subject.
+    mainc = (ROOT / "source/main.c").read_text()
+    skip_ok = "!defined(PL5_OFFSETS_MODE) && !PL5_1360_RESUME_REPORT_ONLY" in mainc
+    record("synth", "t5: report-only build skips the Linux install", skip_ok,
+           "fetch_linux guarded by the report-only flag" if skip_ok
+           else "fetch_linux runs in the report-only build")
+
 
 def package_lane_tests(tmp: Path) -> None:
     """Checks on a *built* payload ELF: opt-in (PL5_TEST_ELF=1).
