@@ -430,10 +430,15 @@ def synthetic_registry_tests(tmp: Path) -> None:
     t = tree("reg-unknown")
 
     def non_zero_unknown(r):
+        # The rule under test is "an UNKNOWN field carries no value". Force a field to
+        # UNKNOWN so the check is exercised even when the real registry has none left
+        # (it had none once every offset was resolved, and this fixture then silently
+        # stopped testing anything).
         for e in r["entries"]:
-            if e["class"] == "UNKNOWN":
+            if e["class"] != "UNKNOWN":
+                e["class"] = "UNKNOWN"
                 e["value"] = "0x1000"
-                break
+                return
     edit(t, non_zero_unknown)
     rc, out = run_in(t)
     record("synth", "registry: an UNKNOWN field with a value is caught",

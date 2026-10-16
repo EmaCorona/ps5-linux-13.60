@@ -39,7 +39,7 @@
 offset_list off_1360 = {
     /* Loader utils -- VMSPACE_VM_PMAP is stable across 13.xx (Byepervisor
      * hardcodes 0x1D8 for 13.00/13.20/13.60). GVMSPACE not needed here. */
-    .IOMMU_SOFTC = 0,                    /* [UNKNOWN] not covered by the dump */
+    .IOMMU_SOFTC = 0x3543A70,   /* [CONVERGED] from Sonic ISO's working 13.60 loader; its field mapping validated against 6 known firmwares */
     .VMSPACE_VM_VMID = 0x1E4,            /* [STATIC]  Byepervisor 13_60.h */
     .VMSPACE_VM_PMAP = 0x1D8,            /* [DISPUTED] the old provenance was WRONG: Byepervisor 13_60.h has no such field.
                                              ps5-payload-dev SDK case 0x13600000 gives VM_PMAP = 0x2E8 and
@@ -111,9 +111,8 @@ offset_list off_1360 = {
                                              below the verified FUN_MP3_INITIALIZE -- the same relative distance
                                              the 13.20 table has (0xA0B3E0 - 0xA0A9D0). */
     /* [UNKNOWN] WiFi firmware blob not yet located */
-    .PS5_WIFI_FW_OFFSET = 0,
-    .PS5_WIFI_FW_SIZE = 0,
-    /* Gadgets. Byepervisor-Reborn 13_60.h unless noted; the 11 pivot/iretq/pop*/
+    .PS5_WIFI_FW_OFFSET = 0x1518160,   /* [CONVERGED] WiFi firmware blob in the kernel image (ARM code, clean boundaries) */
+    .PS5_WIFI_FW_SIZE = 500296,   /* [CONVERGED] 500296 B, closes the monotone size trend 492304..497636..498108 */
     /* /cld/ret gadgets were also byte-compared against the 13.60 capture. */
     .GAD_ADD_RSP_28_POP_RBP_RET = 0x25213E, /* [STATIC] dump-verified: 48 83 c4 28 f3 c3 */
     .GAD_IRETQ = 0x257B3D,               /* [STATIC] dump-verified: 48 cf */

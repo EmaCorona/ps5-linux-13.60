@@ -19,12 +19,13 @@
   "entries": [
     {
       "field": "IOMMU_SOFTC",
-      "namespace": "KTEXT_REL",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3543A70",
       "used_by": "none (escape)",
-      "provenance": "value not derivable, and upstream stopped needing it: in the aggregated reference table (NotSoTypicalGamer/HV-Bypass-13.60 kernel/reference/ps5linux_offsets.c, 22 firmware blocks 3.00-7.61) .IOMMU_SOFTC is present only for 3.00-4.51 and is explicitly marked '// .IOMMU_SOFTC not needed' in all 13 modern blocks (5.xx through 7.61). Our own registry lists its use as 'none (escape)'. Extrapolation from the older relation to DATA_BASE_GVMSPACE was tested and rejected: 0x3BAA570 - 0x310C9A0 = 0x0AAA570 lands INSIDE .text (< 0xCC0000), which is impossible for a data global, so the difference is not a stable invariant across that layout change. Namespace corrected earlier from STRUCT_OFF to KDATA_REL",
-      "verified_by": "upstream annotation + extrapolation test 2026-10-16 (no value claimed)"
+      "provenance": "resolved from the ELF 1360linux.elf published by Sonic ISO (sha256 e51a0298cb2c97b7…) and cross-validated three ways. (1) Field mapping: the ELF carries 28 per-firmware offset tables copied into env_offset by set_offsets(); reading the WiFi fields at struct +0x128/+0x130 -- the very displacements dump_ps5_wifi_firmware tests before dumping -- reproduces the known values of six firmwares exactly (3.00 0x1274460/492304, 3.10 0x1274490/492304, 4.50 0x1392FC0/493000, 5.00 0x142E2B0/493532, 6.00 0x1455C00/494536, 7.61 0x1445800/497636), and the struct order matches offsets.h (IOMMU_SOFTC, VM_VMID, VM_PMAP, DATA_BASE_GVMSPACE, ACPIGBL_FACS, IDT …) with six anchors landing exactly where they belong. (2) Its 13.60 table agrees with our independently resolved values: FUN_TRANSMITTER_CONTROL 0xC0EAA0, FUN_MP3_INVOKE 0xA12D30, KERNEL_CFI_CHECK 0x44F8C0, IDT 0x3BB4300, DATA_BASE_GVMSPACE 0x3BAA570. (3) Capture checks: the qword at IOMMU_SOFTC is a canonical kernel pointer (0xffffff8007568000); the WiFi region starts with 01000000, contains ARM firmware code (e59ff01c x8) and has clean boundaries",
+      "verified_by": "ELF reverse engineering + 6-firmware validation + capture check 2026-10-16",
+      "class_": "KNOWN_STATIC"
     },
     {
       "field": "VMSPACE_VM_VMID",
@@ -190,21 +191,21 @@
     },
     {
       "field": "PS5_WIFI_FW_OFFSET",
-      "namespace": "NONE",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x1518160",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "no public source of the blob exists: the projects that consume it expect the user (or the distro) to supply nxp/pcieuartiw620_combo_v1.bin. Chain checked end to end 2026-10-16: the ps5-linux-image helper reads it from /efi/lib/nxp, proper-bazzite-ps5 reads it from /usr/lib/firmware/nxp, that project's base is bazzite-deck and this workstation IS bazzite-deck with no iw620 anywhere on disk, its kernel RPM (extracted from the public image layer, 721 files) carries only mlan.ko/moal.ko, the ps5-linux org has no firmware repo and linux-firmware has no such file. A structural scan of the capture found six high-entropy runs in the 300-900 KB range but none matching the 492-498 KB bracket with an NXP-style header, so no value is claimed",
-      "verified_by": "chain check 2026-10-16 (negative result, documented)"
+      "provenance": "resolved from the ELF 1360linux.elf published by Sonic ISO (sha256 e51a0298cb2c97b7…) and cross-validated three ways. (1) Field mapping: the ELF carries 28 per-firmware offset tables copied into env_offset by set_offsets(); reading the WiFi fields at struct +0x128/+0x130 -- the very displacements dump_ps5_wifi_firmware tests before dumping -- reproduces the known values of six firmwares exactly (3.00 0x1274460/492304, 3.10 0x1274490/492304, 4.50 0x1392FC0/493000, 5.00 0x142E2B0/493532, 6.00 0x1455C00/494536, 7.61 0x1445800/497636), and the struct order matches offsets.h (IOMMU_SOFTC, VM_VMID, VM_PMAP, DATA_BASE_GVMSPACE, ACPIGBL_FACS, IDT …) with six anchors landing exactly where they belong. (2) Its 13.60 table agrees with our independently resolved values: FUN_TRANSMITTER_CONTROL 0xC0EAA0, FUN_MP3_INVOKE 0xA12D30, KERNEL_CFI_CHECK 0x44F8C0, IDT 0x3BB4300, DATA_BASE_GVMSPACE 0x3BAA570. (3) Capture checks: the qword at IOMMU_SOFTC is a canonical kernel pointer (0xffffff8007568000); the WiFi region starts with 01000000, contains ARM firmware code (e59ff01c x8) and has clean boundaries",
+      "verified_by": "idem"
     },
     {
       "field": "PS5_WIFI_FW_SIZE",
       "namespace": "NONE",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "class": "KNOWN_STATIC",
+      "value": "500296",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "no public source of the blob exists: the projects that consume it expect the user (or the distro) to supply nxp/pcieuartiw620_combo_v1.bin. Chain checked end to end 2026-10-16: the ps5-linux-image helper reads it from /efi/lib/nxp, proper-bazzite-ps5 reads it from /usr/lib/firmware/nxp, that project's base is bazzite-deck and this workstation IS bazzite-deck with no iw620 anywhere on disk, its kernel RPM (extracted from the public image layer, 721 files) carries only mlan.ko/moal.ko, the ps5-linux org has no firmware repo and linux-firmware has no such file. A structural scan of the capture found six high-entropy runs in the 300-900 KB range but none matching the 492-498 KB bracket with an NXP-style header, so no value is claimed",
-      "verified_by": "chain check 2026-10-16 (negative result, documented)"
+      "provenance": "resolved from the ELF 1360linux.elf published by Sonic ISO (sha256 e51a0298cb2c97b7…) and cross-validated three ways. (1) Field mapping: the ELF carries 28 per-firmware offset tables copied into env_offset by set_offsets(); reading the WiFi fields at struct +0x128/+0x130 -- the very displacements dump_ps5_wifi_firmware tests before dumping -- reproduces the known values of six firmwares exactly (3.00 0x1274460/492304, 3.10 0x1274490/492304, 4.50 0x1392FC0/493000, 5.00 0x142E2B0/493532, 6.00 0x1455C00/494536, 7.61 0x1445800/497636), and the struct order matches offsets.h (IOMMU_SOFTC, VM_VMID, VM_PMAP, DATA_BASE_GVMSPACE, ACPIGBL_FACS, IDT …) with six anchors landing exactly where they belong. (2) Its 13.60 table agrees with our independently resolved values: FUN_TRANSMITTER_CONTROL 0xC0EAA0, FUN_MP3_INVOKE 0xA12D30, KERNEL_CFI_CHECK 0x44F8C0, IDT 0x3BB4300, DATA_BASE_GVMSPACE 0x3BAA570. (3) Capture checks: the qword at IOMMU_SOFTC is a canonical kernel pointer (0xffffff8007568000); the WiFi region starts with 01000000, contains ARM firmware code (e59ff01c x8) and has clean boundaries; size closes the monotone trend 492304/493000/493532/494536/497636/498108/500296",
+      "verified_by": "idem"
     },
     {
       "field": "GAD_ADD_RSP_28_POP_RBP_RET",
