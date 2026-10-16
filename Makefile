@@ -1,4 +1,4 @@
-.PHONY: all clean version offsets verify-offsets verify-resume verify-offsets-text disarm gpu-textverify t5-report-only clean-objs
+.PHONY: all clean version offsets verify-offsets verify-resume verify-offsets-text disarm gpu-textverify t5-report-only t5b-install-no-arm clean-objs
 
 # The configuration-stamp rule below defines a target before `all`, so the
 # default goal is stated explicitly instead of being "whichever target came
@@ -63,12 +63,16 @@ PL5_1360_STAGE_PRE_SLEEP ?= 0
 # takeover. Off by default, and hv_defeat_1360.c fails the compile unless every
 # arming / takeover / pre-sleep-staging flag is 0 as well (fail-closed).
 PL5_1360_RESUME_REPORT_ONLY ?= 0
+# T5b: install the resume chain but never make the hijack live. Requires
+# PL5_1360_RESUME_REPORT_ONLY=1 and the four arming/takeover/staging flags at 0;
+# hv_defeat_1360.c refuses the combination otherwise. Off by default.
+PL5_1360_INSTALL_NO_ARM ?= 0
 # Commit the artifact was built from, printed in the log header so a run's log
 # can be tied back to a revision. It changes no code path, but it is part of the
 # stamp so a binary can never be attributed to the wrong revision.
 PL5_BUILD_COMMIT ?= unknown
 
-CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -DPL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) -DPL5_BUILD_COMMIT='"$(PL5_BUILD_COMMIT)"' -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover -Isource/shellcode/db_trampoline
+CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -DPL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) -DPL5_1360_INSTALL_NO_ARM=$(PL5_1360_INSTALL_NO_ARM) -DPL5_BUILD_COMMIT='"$(PL5_BUILD_COMMIT)"' -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover -Isource/shellcode/db_trampoline
 
 # Configuration stamp. The flags above are compiler options, not inputs of any
 # rule, so make would happily reuse objects built with different ones. The stamp
@@ -82,7 +86,7 @@ PL5_CONFIG_STAMP := .pl5-config.stamp
 # PL5_1360_ARM_HOOK=1` could ship an unacknowledged arming build: with PL5_DIAG
 # hard-wired to 16 in the environment, the ack guard would never be re-evaluated.
 # tests/run_tests.py checks that no -D flag in CFLAGS is missing from this list.
-PL5_CONFIG_VALUE := PL5_DIAG=$(PL5_DIAG) PL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) PL5_PROBE=$(PL5_PROBE) PL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) PL5_HV_STOP=$(PL5_HV_STOP) PL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) PL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) PL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) PL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) PL5_BUILD_COMMIT=$(PL5_BUILD_COMMIT)
+PL5_CONFIG_VALUE := PL5_DIAG=$(PL5_DIAG) PL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) PL5_PROBE=$(PL5_PROBE) PL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) PL5_HV_STOP=$(PL5_HV_STOP) PL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) PL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) PL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) PL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) PL5_1360_INSTALL_NO_ARM=$(PL5_1360_INSTALL_NO_ARM) PL5_BUILD_COMMIT=$(PL5_BUILD_COMMIT)
 
 .PHONY: FORCE
 FORCE:
@@ -177,6 +181,17 @@ t5-report-only: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(S
 		|| { echo "t5-report-only: run as 'make PL5_DIAG=4 PL5_1360_RESUME_REPORT_ONLY=1 PL5_BUILD_COMMIT=<sha> t5-report-only'"; exit 2; }
 	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o bin/pl5-t5-report-only.elf
 	@echo "built bin/pl5-t5-report-only.elf (diag=$(PL5_DIAG) report_only=$(PL5_1360_RESUME_REPORT_ONLY) build_commit=$(PL5_BUILD_COMMIT))"
+
+# T5b: install the chain without arming it. Refuses to build unless both flags
+# were requested, so the artefact name and the configuration cannot disagree; the
+# other preconditions are refused by the compile-time guards in hv_defeat_1360.c.
+t5b-install-no-arm: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	@test "$(PL5_1360_RESUME_REPORT_ONLY)" = "1" -a "$(PL5_1360_INSTALL_NO_ARM)" = "1" \
+		|| { echo "t5b-install-no-arm: run as 'make PL5_DIAG=4 PL5_1360_RESUME_REPORT_ONLY=1 PL5_1360_INSTALL_NO_ARM=1 PL5_BUILD_COMMIT=<sha> t5b-install-no-arm'"; exit 2; }
+	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o bin/pl5-t5b-install-no-arm.elf
+	@echo "built bin/pl5-t5b-install-no-arm.elf (diag=$(PL5_DIAG) report_only=$(PL5_1360_RESUME_REPORT_ONLY) install_no_arm=$(PL5_1360_INSTALL_NO_ARM) build_commit=$(PL5_BUILD_COMMIT))"
+
 
 $(SC_0607_H):
 	$(MAKE) -C source/shellcode/0607

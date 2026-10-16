@@ -344,6 +344,71 @@ def synthetic_make_flag_tests() -> None:
            "fetch_linux guarded by the report-only flag" if skip_ok
            else "fetch_linux runs in the report-only build")
 
+    # T5b: install the chain without ever making the hijack live. The separation
+    # is not taken on trust from khook's comments -- it is checked against the
+    # source: the arming writes must be suppressible by a mask set from literals
+    # (never inherited), the trigger must be skipped in this build, the redirect
+    # must be off, and every call that can arm must sit behind an arming guard.
+    def guard_stack(text: str, lineno: int) -> list[str]:
+        """Conditions governing `lineno`, as a flattened list of clause strings."""
+        stack: list[list[str]] = []
+        for i, line in enumerate(text.splitlines(), start=1):
+            s = line.strip()
+            if i >= lineno:
+                break
+            if s.startswith(("#if ", "#ifdef ", "#ifndef ")):
+                stack.append([s])
+            elif s.startswith("#elif "):
+                if stack:
+                    prev = stack[-1]
+                    prev.append(s)
+            elif s.startswith("#else"):
+                if stack:
+                    stack[-1].append("#else")
+            elif s.startswith("#endif"):
+                if stack:
+                    stack.pop()
+        return [c for group in stack for c in group]
+
+    t5b_guard = (
+        "#ifndef PL5_1360_INSTALL_NO_ARM" in src1360
+        and "#define PL5_1360_INSTALL_NO_ARM 0" in src1360
+        and "!PL5_1360_RESUME_REPORT_ONLY ||" in src1360
+        and "PL5_1360_RESUME_REPORT_ONLY=1 and PL5_1360_ARM_HOOK=0" in src1360
+        and "PL5_1360_INSTALL_NO_ARM && PL5_DIAG >= 10" in src1360
+    )
+    t5b_default_off = "PL5_1360_INSTALL_NO_ARM ?= 0" in mk
+    record("synth", "t5b: install-no-arm flag is fail-closed and off by default",
+           t5b_guard and t5b_default_off,
+           f"guards={t5b_guard} default_off={t5b_default_off}")
+
+    # The mask that keeps the hijack not live must come from a literal, and the
+    # trigger must have a branch that skips it in this build.
+    mask_literal = src1360.count("kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;") >= 3
+    trigger_skipped = ("#if PL5_1360_INSTALL_NO_ARM\n  /* T5b: the trigger exercises"
+                       in src1360
+                       and "kh_trigger SKIPPED (hijack not live by design)" in src1360)
+    redirect_off = "install_resume_hook(cave_addr, /*redirect=*/0);" in src1360
+    record("synth", "t5b: hijack writes suppressed by a literal mask", mask_literal,
+           f"mask literals: {src1360.count('kh_diag_skip_mask = KH_SKIP_IST | KH_SKIP_GATE;')}")
+    record("synth", "t5b: trigger skipped and redirect off", trigger_skipped and redirect_off,
+           f"trigger_skipped={trigger_skipped} redirect_off={redirect_off}")
+
+    # Nothing that can arm may be reachable outside its arming guard.
+    lines = src1360.splitlines()
+    arming_calls = {"kh_arm(": ("PL5_DIAG == 18",), "db_gate_install(": ("PL5_1360_ARM_HOOK",),
+                    "db_trigger(": ("PL5_1360_ARM_HOOK",)}
+    bad: list[str] = []
+    for i, line in enumerate(lines, start=1):
+        s = line.split("//")[0]
+        for call, needed in arming_calls.items():
+            if call in s and not s.lstrip().startswith(("*", "/*")):
+                g = guard_stack(src1360, i)
+                if not any(n in c for c in g for n in needed):
+                    bad.append(f"{call}@{i} guards={g}")
+    record("synth", "t5b: arming calls stay behind their arming guard", not bad,
+           "; ".join(bad) if bad else f"{sum(1 for l in lines for c in arming_calls if c in l)} call sites checked")
+
 
 def package_lane_tests(tmp: Path) -> None:
     """Checks on a *built* payload ELF: opt-in (PL5_TEST_ELF=1).
