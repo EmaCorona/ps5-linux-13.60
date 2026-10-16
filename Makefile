@@ -1,4 +1,4 @@
-.PHONY: all clean version offsets verify-offsets verify-offsets-text disarm gpu-textverify clean-objs
+.PHONY: all clean version offsets verify-offsets verify-resume verify-offsets-text disarm gpu-textverify t5-report-only clean-objs
 
 # The configuration-stamp rule below defines a target before `all`, so the
 # default goal is stated explicitly instead of being "whichever target came
@@ -58,8 +58,17 @@ PL5_1360_ACK_EXPERIMENTAL_ARMING ?= 0
 # Pre-sleep staging of the Linux hand-off (Task 15): off by default, because the
 # ~64 MB cave write at arm time is still a suspect for the wake crash.
 PL5_1360_STAGE_PRE_SLEEP ?= 0
+# T5 report-only resume diagnostic: stage the escape, enter standby, and on the
+# wake *report* the state instead of arming anything or running the post-resume
+# takeover. Off by default, and hv_defeat_1360.c fails the compile unless every
+# arming / takeover / pre-sleep-staging flag is 0 as well (fail-closed).
+PL5_1360_RESUME_REPORT_ONLY ?= 0
+# Commit the artifact was built from, printed in the log header so a run's log
+# can be tied back to a revision. It changes no code path, but it is part of the
+# stamp so a binary can never be attributed to the wrong revision.
+PL5_BUILD_COMMIT ?= unknown
 
-CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover -Isource/shellcode/db_trampoline
+CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -DPL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) -DPL5_BUILD_COMMIT='"$(PL5_BUILD_COMMIT)"' -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover -Isource/shellcode/db_trampoline
 
 # Configuration stamp. The flags above are compiler options, not inputs of any
 # rule, so make would happily reuse objects built with different ones. The stamp
@@ -68,7 +77,12 @@ CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKE
 # rebuilds them (and re-enters the shellcode sub-makes, which stamp themselves)
 # without needing an explicit clean.
 PL5_CONFIG_STAMP := .pl5-config.stamp
-PL5_CONFIG_VALUE := PL5_DIAG=$(PL5_DIAG) PL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) PL5_PROBE=$(PL5_PROBE) PL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) PL5_HV_STOP=$(PL5_HV_STOP) PL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) PL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP)
+# It must carry *every* flag that reaches the compiler through CFLAGS, because a
+# stale object built with a different value is exactly how `make
+# PL5_1360_ARM_HOOK=1` could ship an unacknowledged arming build: with PL5_DIAG
+# hard-wired to 16 in the environment, the ack guard would never be re-evaluated.
+# tests/run_tests.py checks that no -D flag in CFLAGS is missing from this list.
+PL5_CONFIG_VALUE := PL5_DIAG=$(PL5_DIAG) PL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) PL5_PROBE=$(PL5_PROBE) PL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) PL5_HV_STOP=$(PL5_HV_STOP) PL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) PL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) PL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) PL5_1360_RESUME_REPORT_ONLY=$(PL5_1360_RESUME_REPORT_ONLY) PL5_BUILD_COMMIT=$(PL5_BUILD_COMMIT)
 
 .PHONY: FORCE
 FORCE:
@@ -140,6 +154,29 @@ verify-offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(S
 	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \
 		-o bin/pl5-verify-offsets.elf
 	@echo "built bin/pl5-verify-offsets.elf"
+
+# T5 (analyst plan, phase 5): read-only post-resume state check. Same entrypoint
+# and same guarantees as verify-offsets (no escape, no arming, no standby, no
+# write of any kind): it only *reads* the .text page-table bits, the cave marker
+# and the IDT gate, so it can be run after a staging run on the same power-up
+# without spending that power-up's single writing action.
+verify-resume: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE -DPL5_VERIFY_RESUME=1 $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \
+		-o bin/pl5-verify-resume.elf
+	@echo "built bin/pl5-verify-resume.elf"
+
+# T5: build the report-only resume diagnostic under its own name, and refuse to
+# do it unless the flag was actually requested. The four ways of confounding the
+# measurement (arm / ack / takeover / pre-sleep staging) are refused by the
+# compile-time guard in hv_defeat_1360.c; this target only pins the artefact name
+# to the configuration so a binary and its recorded flags cannot disagree.
+t5-report-only: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	@test "$(PL5_1360_RESUME_REPORT_ONLY)" = "1" \
+		|| { echo "t5-report-only: run as 'make PL5_DIAG=4 PL5_1360_RESUME_REPORT_ONLY=1 PL5_BUILD_COMMIT=<sha> t5-report-only'"; exit 2; }
+	$(CC) $(CFLAGS) $(SRC) $(LDFLAGS) -o bin/pl5-t5-report-only.elf
+	@echo "built bin/pl5-t5-report-only.elf (diag=$(PL5_DIAG) report_only=$(PL5_1360_RESUME_REPORT_ONLY) build_commit=$(PL5_BUILD_COMMIT))"
 
 $(SC_0607_H):
 	$(MAKE) -C source/shellcode/0607

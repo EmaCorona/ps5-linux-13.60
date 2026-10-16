@@ -10,6 +10,44 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Build-identity fallbacks. The payload build always passes these (the Makefile
+ * CFLAGS define every one of them), but keeping defaults here means this file
+ * still compiles on its own: the log header must never be the reason a build
+ * fails, and it must never print a flag that was not actually defined. */
+#ifndef PL5_BUILD_COMMIT
+#define PL5_BUILD_COMMIT "unknown"
+#endif
+#ifndef PL5_DIAG
+#define PL5_DIAG 3
+#endif
+#ifndef PL5_TAKEOVER_STAGE
+#define PL5_TAKEOVER_STAGE 3
+#endif
+#ifndef PL5_PROBE
+#define PL5_PROBE 0
+#endif
+#ifndef PL5_HV_STOP
+#define PL5_HV_STOP 0
+#endif
+#ifndef PL5_TAKEOVER_FW
+#define PL5_TAKEOVER_FW 0
+#endif
+#ifndef PL5_1360_TAKEOVER
+#define PL5_1360_TAKEOVER 0
+#endif
+#ifndef PL5_1360_ARM_HOOK
+#define PL5_1360_ARM_HOOK 0
+#endif
+#ifndef PL5_1360_ACK_EXPERIMENTAL_ARMING
+#define PL5_1360_ACK_EXPERIMENTAL_ARMING 0
+#endif
+#ifndef PL5_1360_STAGE_PRE_SLEEP
+#define PL5_1360_STAGE_PRE_SLEEP 0
+#endif
+#ifndef PL5_1360_RESUME_REPORT_ONLY
+#define PL5_1360_RESUME_REPORT_ONLY 0
+#endif
+
 /* File log: mirrored from notify()/logmsg(). We open *every* candidate that
  * accepts a handle (the USB stick the loader already reads AND the internal FS)
  * and write each line to all of them, so the log can be pulled by unplugging the
@@ -87,6 +125,20 @@ int setup_env(void) {
     return -1;
   if (init_global_vars())
     return -1;
+
+  /* Run header: one line that ties a log file to the exact artifact and
+   * configuration that produced it. It is written as soon as fw is known and
+   * before anything acts, so a log that ends abruptly still states what was
+   * running. `commit` is the revision the ELF was built from; the header cannot
+   * hash the binary it is compiled into, so the caller records the matching
+   * SHA-256 of the artifact (docs/ANALYSIS-T5-REPORT.md, phase 6). */
+  notify("pl5: run header version=%s commit=%s fw=%#x diag=%d stage=%d probe=%d "
+         "hv_stop=%d takeover_fw=%#x | arm=%d ack=%d takeover=%d stage_pre_sleep=%d "
+         "report_only=%d\n",
+         ident, PL5_BUILD_COMMIT, fw, PL5_DIAG, PL5_TAKEOVER_STAGE, PL5_PROBE,
+         PL5_HV_STOP, PL5_TAKEOVER_FW, PL5_1360_ARM_HOOK,
+         PL5_1360_ACK_EXPERIMENTAL_ARMING, PL5_1360_TAKEOVER,
+         PL5_1360_STAGE_PRE_SLEEP, PL5_1360_RESUME_REPORT_ONLY);
   return 0;
 }
 

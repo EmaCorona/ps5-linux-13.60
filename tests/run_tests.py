@@ -305,6 +305,35 @@ def synthetic_make_flag_tests() -> None:
                for l in mk.splitlines()),
            "stamp wired into an OBJS rule")
 
+    # Every -D flag that reaches the compiler through CFLAGS must also appear in
+    # the configuration stamp. A flag present in CFLAGS but missing from the
+    # stamp can be switched without rebuilding anything, which is exactly how
+    # `make PL5_1360_ARM_HOOK=1` could ship a binary whose in-source ack guard
+    # (PL5_1360_ACK_EXPERIMENTAL_ARMING) was never re-evaluated. The names are
+    # read out of the Makefile, so the check cannot drift from it.
+    import re
+
+    cflags_line = next((l for l in mk.splitlines() if l.startswith("CFLAGS")), "")
+    stamp_line = next((l for l in mk.splitlines() if l.startswith("PL5_CONFIG_VALUE")), "")
+    flags = sorted(set(re.findall(r"-D([A-Za-z0-9_]+)=", cflags_line)))
+    missing = [f for f in flags if f not in stamp_line]
+    record("synth", "make: every CFLAGS -D flag is in the config stamp",
+           bool(flags) and not missing,
+           (f"missing from stamp: {missing}" if missing else f"{len(flags)} flags covered"))
+
+    # T5 must be off by default and fail closed when switched on: the report-only
+    # path is only meaningful if arming, takeover and pre-sleep staging are all
+    # off, so the refusal is a compile-time #error and not a comment.
+    src1360 = (ROOT / "source/hv/defeat/hv_defeat_1360.c").read_text()
+    guard = ("PL5_1360_RESUME_REPORT_ONLY" in src1360
+             and "#error" in src1360
+             and "PL5_1360_ACK_EXPERIMENTAL_ARMING ||" in src1360
+             and "PL5_1360_TAKEOVER ||" in src1360
+             and "PL5_1360_STAGE_PRE_SLEEP" in src1360)
+    default_off = "PL5_1360_RESUME_REPORT_ONLY ?= 0" in mk
+    record("synth", "t5: report-only flag is fail-closed and off by default",
+           guard and default_off, f"guard={guard} default_off={default_off}")
+
 
 def package_lane_tests(tmp: Path) -> None:
     """Checks on a *built* payload ELF: opt-in (PL5_TEST_ELF=1).

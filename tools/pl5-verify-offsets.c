@@ -18,9 +18,17 @@
  */
 #include "utils.h"
 
+#include "byepervisor/paging.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+/* Offset of the ARMED marker inside the kernel data cave. Same constant the
+ * escape paths use (hv_defeat_1360.c / hv_defeat_1320.c define CAVE_STATE_OFF
+ * locally); it is repeated here so the checker does not have to include the
+ * escape translation unit. */
+#define VERIFY_CAVE_STATE_OFF 0x600ULL
 
 /* Valori attesi: quelli risolti e committati nella tabella 13.60. Se il build
  * pesca oggetti vecchi, questo confronto lo scopre. */
@@ -158,6 +166,55 @@ int pl5_verify_offsets(void) {
   notify("verify: .text FUN_SMP_NO_RENDEVOUS_BARRIER = %#lx\n", (uint64_t)env_offset.FUN_SMP_NO_RENDEVOUS_BARRIER);
   notify("verify: .text FUN_TRANSMITTER_CONTROL = %#lx\n", (uint64_t)env_offset.FUN_TRANSMITTER_CONTROL);
   notify("verify: .text KERNEL_CFI_CHECK         = %#lx\n", (uint64_t)env_offset.KERNEL_CFI_CHECK);
+
+#ifdef PL5_VERIFY_RESUME
+  /* T5: stato post-resume, sola lettura. Legge gli *entry* di page table che
+   * descrivono kernel .text (non i byte di .text: quello resta vietato) e il
+   * marker nella data cave. Nessuna scrittura, nessun ripristino, nessun armo,
+   * nessuno standby, nessuna elevazione di credenziali -- quindi puo' girare
+   * dopo uno staging nella stessa accensione senza consumarne l'unica azione
+   * scrivente. Gli indirizzi sono le stesse espressioni che usa il percorso di
+   * escape (kdlsym() e' letteralmente ktext + env_offset.<X>). */
+  notify("verify: -- 4/4 stato post-resume (sola lettura) --\n");
+  {
+    uint64_t pm = ktext + env_offset.KERNEL_SYM_PMAP_STORE;
+    uint64_t cave = ktext + env_offset.KERNEL_SYM_DATA_CAVE;
+
+    if (pm == ktext || cave == ktext) {
+      notify("verify: resume pmap/cave non risolti (pm=%#lx cave=%#lx)\n",
+             (unsigned long)pm, (unsigned long)cave);
+    } else {
+      uint64_t epde = 0, epte = 0;
+      uint64_t apde = find_pde(pm, ktext, &epde);
+      uint64_t apte = find_pte(pm, ktext, &epte);
+      uint64_t marker = kread64(cave + VERIFY_CAVE_STATE_OFF);
+      int have_pte = (apte != 0xFFFFFFFFFFFFFFFFULL);
+
+      if (apde != 0xFFFFFFFFFFFFFFFFULL)
+        notify("verify: resume ktext pde@%#lx=%#lx xotext=%lu rw=%lu\n",
+               (unsigned long)apde, (unsigned long)epde,
+               (unsigned long)PDE_FIELD(epde, XOTEXT),
+               (unsigned long)PDE_FIELD(epde, RW));
+      if (have_pte)
+        notify("verify: resume ktext pte@%#lx=%#lx xotext=%lu rw=%lu\n",
+               (unsigned long)apte, (unsigned long)epte,
+               (unsigned long)PDE_FIELD(epte, XOTEXT),
+               (unsigned long)PDE_FIELD(epte, RW));
+
+      snprintf(d, sizeof d, "xotext=%lu rw=%lu marker=%#lx",
+               (unsigned long)(have_pte ? PDE_FIELD(epte, XOTEXT) : 0),
+               (unsigned long)(have_pte ? PDE_FIELD(epte, RW) : 0),
+               (unsigned long)marker);
+      /* Criterio descrittivo, non di sicurezza: dice se lo staging dell'escape
+       * e' ancora in vigore dopo il ciclo e se nessun armo e' stato dichiarato.
+       * Un FAIL qui non accusa il kernel: dice che lo stato letto non e' quello
+       * che un ciclo report-only dovrebbe lasciare. */
+      live("resume stato .text/marker", d,
+           have_pte && PDE_FIELD(epte, XOTEXT) == 0 && PDE_FIELD(epte, RW) == 1 &&
+               marker == 0);
+    }
+  }
+#endif
 
   notify("verify: ==== RESULT pass=%d fail=%d -> %s ====\n", g_pass, g_fail,
          g_fail ? "ATTENZIONE" : "TUTTO OK");

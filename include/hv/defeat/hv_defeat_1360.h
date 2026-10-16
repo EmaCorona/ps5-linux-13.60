@@ -27,6 +27,16 @@ int hv_defeat_1360_post_resume(void);
  */
 int hv_defeat_1360_arm(void);
 
+/*
+ * T5 (analyst plan, phase 5): report-only post-resume check. Built only with
+ * -DPL5_1360_RESUME_REPORT_ONLY=1, which the compile-time guards in
+ * hv_defeat_1360.c accept only together with ARM_HOOK=0, ACK=0, TAKEOVER=0 and
+ * STAGE_PRE_SLEEP=0. It performs no kernel write: it reads back the .text
+ * page-table state and the cave marker so the "does the staging survive the
+ * sleep" question is answered without arming anything or taking over.
+ */
+int hv_defeat_1360_report_resume(void);
+
 #endif
 
 /* Inverse of the escape: restore .text XOTEXT/RW and drop the ARMED marker. */

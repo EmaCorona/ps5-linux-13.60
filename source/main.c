@@ -41,6 +41,16 @@ int main(void) {
     return -1;
   }
 
+#if PL5_1360_RESUME_REPORT_ONLY
+  /* T5 exists for one firmware only: its staging rewrites the 13.60 page tables.
+   * Refuse before anything is written rather than run the cycle on a target whose
+   * numbers were not derived for it. */
+  if (fw != 0x1360) {
+    notify("report-only resume diagnostic: fw=%#x is not 13.60; refusing.\n", fw);
+    return -1;
+  }
+#endif
+
 #ifdef PL5_DISARM_MODE
   /* WS3: ripristina .text (XOTEXT su, RW giu') e azzera il marker ARMED.
    * Nessun armo, nessuno standby: consegna un kernel pulito senza riavviare. */
@@ -115,8 +125,9 @@ int main(void) {
          "blinking and then wakeup to Linux :)\n");
 #endif
 
-#if PL5_DIAG >= 10 && PL5_DIAG < 18
-  /* P4 bisection: never enter standby; just prove how long the install survives. */
+#if PL5_DIAG >= 10 && PL5_DIAG < 18 && !PL5_1360_RESUME_REPORT_ONLY
+  /* P4 bisection: never enter standby; just prove how long the install survives.
+   * T5 opts out on purpose: the standby those stages skip is the whole point. */
   notify("13.60: P4 diag=%d — install done; heartbeat, standby SKIPPED\n", PL5_DIAG);
   for (int __i = 0; __i < 20; __i++) {
     notify("13.60: [hb %02d]\n", __i);
@@ -142,8 +153,21 @@ int main(void) {
    * finish the takeover from here (runs on the BSP once we wake). */
   if (is_1320)
     hv_defeat_1320_post_resume();
+#if PL5_1360_RESUME_REPORT_ONLY
+  /* T5: report-only cycle. Nothing was armed, so there is no vector to wait for
+   * and no takeover to run: report the post-wake state and exit, leaving elfldr
+   * free for the next payload. hv_defeat_1360_post_resume() is deliberately NOT
+   * called -- it is the continuation T5 exists to separate from the staging.
+   * (is_1320 cannot be set in this build: the guard right after setup_env()
+   * refuses any firmware other than 13.60.) */
+  if (is_1360) {
+    hv_defeat_1360_report_resume();
+    return 0;
+  }
+#else
   if (is_1360)
     hv_defeat_1360_post_resume();
+#endif
 
 #ifdef PL5_OFFSETS_MODE
   /* Offsets payload: hv_defeat_1320_post_resume() has already dumped the
