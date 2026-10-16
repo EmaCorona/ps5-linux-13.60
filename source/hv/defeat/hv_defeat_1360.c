@@ -105,6 +105,18 @@ extern unsigned int takeover_bin_len;
 #if PL5_1360_FUN_VMMCALL_HC4 == 0
 #error "13.60 takeover: PL5_1360_FUN_VMMCALL_HC4 is a 0 placeholder; use the confirmed 13.60 wrapper 0xC16A10"
 #endif
+
+/* The shared takeover blob (source/shellcode/hv_takeover/) carries exactly one
+ * firmware's constants -- the HV handler PA cannot be derived from a kernel
+ * dump, so it cannot be selected at runtime. Refuse to arm 13.60 with a blob
+ * built for another firmware; silently using it would write a 13.20 patch into
+ * a 13.60 kernel. */
+#ifndef PL5_TAKEOVER_FW
+#define PL5_TAKEOVER_FW 0
+#endif
+#if PL5_TAKEOVER_FW != 1360
+#error "13.60 takeover: the shared takeover blob was built for another firmware (PL5_TAKEOVER_FW != 1360); refusing to arm 13.60 with a foreign blob"
+#endif
 #endif
 
 /* Set by hv_defeat_1360() before rest mode, consumed by the post-resume

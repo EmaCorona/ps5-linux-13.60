@@ -541,3 +541,43 @@ Phase B and S3 resume are **unchanged**: they need the hypervisor PAs, which a
 kernel capture cannot contain, and console time. The `.text` power-off
 explanation in `docs/1360-offsets-from-dump.md` was itself wrong and is
 corrected there rather than left standing.
+
+## Update — 2026-10-16 (round 4) — the shared takeover blob is firmware-parameterized
+
+The blob written into the live kernel by the post-resume takeover
+(`source/shellcode/hv_takeover/takeover.S`) had 13.20 addresses baked into its
+instruction body: the HV handler PA, the CFI handler, the smp_rendezvous
+wrapper, the hypercall-4 wrapper and the `ret` gadget. Anything that built the
+blob for 13.60 would have silently written a *13.20* patch into a 13.60 kernel.
+
+Every firmware-specific constant now lives in one guarded block selected by
+`PL5_TAKEOVER_FW`; the instruction body references only macro names.
+
+```
+$ python3 tools/verify_takeover_param.py        -> 12/12
+$ make                                          -> EXIT 0
+$ make PL5_TAKEOVER_FW=1360                     -> refused (HV handler PA unknown)
+$ make PL5_1360_TAKEOVER=1                      -> refused (3 errors)
+```
+
+**Behaviour-preserving for the firmware that works today:** the rebuilt 13.20
+blob is **byte-identical** to the one shipped before the split (144 B,
+sha256 `c6cfbaa3dffc5638…`), verified by building the pre-change source with the
+same toolchain and comparing bytes.
+
+### What this does NOT do
+
+It does not make phase B work on 13.60. It removes a whole class of silent
+error: a 13.60 takeover can no longer inherit 13.20 addresses. The 13.60 blob
+still cannot be built, because `HV_VMMCALL_HANDLER_PA` is HV-resident and a
+kernel dump cannot contain it — the build says so instead of guessing.
+
+`hv_defeat_1360.c` now also refuses to arm 13.60 with a blob built for another
+firmware (`PL5_TAKEOVER_FW != 1360`), so the two sides cannot disagree.
+
+**Still 13.20-hardcoded (not part of this change):** `hv_defeat_1320.c`
+duplicates `0x62847375` in five places (lines ~149/633/636/646/652) instead of
+naming it once. Same class of contamination, different file; left alone because
+13.20 is the working platform and the change is untestable here.
+`solution/shellcode/hv_takeover/takeover.c` remains dead code (absent from the
+Makefile) and still carries the 13.20 defines.
