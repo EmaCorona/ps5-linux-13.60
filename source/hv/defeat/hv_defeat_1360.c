@@ -55,7 +55,17 @@ extern unsigned int takeover_bin_len;
 
 #include "byepervisor/kdlsym.h"
 #include "byepervisor/khook.h"
+#include "byepervisor/khook_state.h"
 #include "byepervisor/paging.h"
+
+/* Inheriting an already-armed state from the cave marker is off unless a build
+ * explicitly asks for it. Even then, kh_marker_adopt() also demands proof that
+ * the marker belongs to this run: no run-epoch is published yet, so the marker
+ * alone never wins and a fresh install always happens. See khook_state.h and
+ * docs/1360-khook-design.md. */
+#ifndef PL5_1360_ADOPT_ARMED
+#define PL5_1360_ADOPT_ARMED 0
+#endif
 
 #define STATE_ARMED 0x4B484F4F4B454401ULL // 'KHOOKED.'
 #define COOKIE_VAL 0xCAFE133741414141ULL
@@ -869,37 +879,30 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
          PL5_DIAG, (unsigned long)kread64(cave_addr + CAVE_STATE_OFF),
          kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED ? "SET" : "clear");
 #endif
-  /* NOTE (production, not diagnostics): adopting this mark implicitly is what
-   * silently skipped the install for diag18. For phase B, consider making the
-   * adoption explicit/opt-in rather than automatic. */
-  if (kread64(cave_addr + CAVE_STATE_OFF) == STATE_ARMED) {
-    /* Adopt an already-armed state ONLY if the escape is actually still in
-     * effect (XOTEXT clear on the .text PTE). A stale 'KHOOKED.' mark with
-     * .text still execute-only means the escape never ran in this boot; the
-     * armed state is then worthless (its chain's page tables are gone) and
-     * adopting it would skip the escape and produce an empty dump. */
+  /* Adoption of an inherited armed state is an explicit decision, not an
+   * implicit one (khook_state.h). A marker is a claim about memory that a
+   * previous boot, payload or crash may have left behind: diag18 once reported
+   * "no staged hook" because diag17 had set the mark and the code adopted it. */
+  {
     uint64_t e = 0;
     uint64_t pm = kdlsym(KERNEL_SYM_PMAP_STORE);
     int text_open = (find_pte(pm, ktext, &e) != 0xFFFFFFFFFFFFFFFFull) &&
                     (PDE_FIELD(e, XOTEXT) == 0);
-    if (text_open) {
-#if PL5_DIAG >= 10
-      /* P4 diagnostics must not inherit state: an earlier run can leave the
-       * cave's ARMED mark set, and adopting it would skip the install this
-       * stage is supposed to perform (measured: diag18 reported "no staged
-       * hook" because diag17 had armed it minutes earlier). */
-      notify("13.60: P4 diag=%d: ignoring the adopted armed mark; forcing the escape.\n",
-             PL5_DIAG);
-#else
+    /* epoch_matches is deliberately 0: the marker carries no run epoch yet, so
+     * there is nothing that can make a stale mark verifiable. */
+    enum kh_adopt_reason r = kh_marker_adopt(
+        kread64(cave_addr + CAVE_STATE_OFF), /*epoch_matches=*/0, text_open,
+        PL5_1360_ADOPT_ARMED);
+    if (r == KH_ADOPT_OK) {
       g_oracle = cave_addr + KH_OFF_USER;
       g_payload_va = kdldmap(STARTUP_MP_PAYLOAD_PAGE);
       g_armed = 1;
       g_redirected = 1;
-      notify("13.60: hook armed and .text already open; adopting it.\n");
+      notify("13.60: inherited armed state %s\n", kh_adopt_reason_text(r));
       return 0;
-#endif
     }
-    notify("13.60: stale armed mark (.text still execute-only); running escape.\n");
+    notify("13.60: inherited armed state not adopted: %s\n",
+           kh_adopt_reason_text(r));
   }
 
 #if PL5_DIAG == 5

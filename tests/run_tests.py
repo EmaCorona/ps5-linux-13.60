@@ -470,6 +470,67 @@ def synthetic_policy_tests(tmp: Path) -> None:
            "gate is at the top of pl5_dump_offsets()")
 
 
+def synthetic_hook_state_tests(tmp: Path) -> None:
+    """The hook's state machine and its adoption rule, compiled and run on the
+    host. No console, no SDK: khook_state.h is freestanding."""
+    if not have("gcc"):
+        record("synth", "hook state: transitions and adoption", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "kh_state_probe.c"
+    prog.write_text(
+        '#include "byepervisor/khook_state.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad = 0;\n'
+        '#define EXPECT(cond, label) do { if (!(cond)) { printf("BAD %s\\n", label); bad++; } } while (0)\n'
+        'int main(void) {\n'
+        '  enum kh_state n;\n'
+        '  enum kh_state s = KH_ST_UNINITIALIZED;\n'
+        '  EXPECT(!kh_state_is_live(s), "uninitialized not live");\n'
+        '  EXPECT(kh_state_next(s, KH_EV_INIT, &n) && n == KH_ST_STAGED, "init->staged");\n'
+        '  s = n;\n'
+        '  EXPECT(kh_state_next(s, KH_EV_ARM, &n) && n == KH_ST_ARMED, "staged->armed");\n'
+        '  s = n;\n'
+        '  EXPECT(kh_state_is_live(s), "armed is live");\n'
+        '  EXPECT(kh_state_next(s, KH_EV_TRAP_OURS, &n) && n == KH_ST_TRIGGERED, "armed->triggered");\n'
+        '  s = n;\n'
+        '  EXPECT(kh_state_next(s, KH_EV_DISARM, &n) && n == KH_ST_RESTORED, "triggered->restored");\n'
+        '  s = n;\n'
+        '  EXPECT(!kh_state_is_live(s), "restored not live");\n'
+        '  EXPECT(kh_state_next(s, KH_EV_ARM, &n) && n == KH_ST_ARMED, "restored->armed");\n'
+        '  /* refusals */\n'
+        '  EXPECT(!kh_state_next(KH_ST_UNINITIALIZED, KH_EV_ARM, &n), "cannot arm from uninitialized");\n'
+        '  EXPECT(!kh_state_next(KH_ST_STAGED, KH_EV_TRAP_OURS, &n), "no our-trap while staged");\n'
+        '  EXPECT(!kh_state_next(KH_ST_ARMED, KH_EV_TRAP_FOREIGN, &n), "foreign trap is not a state");\n'
+        '  EXPECT(!kh_state_next(KH_ST_UNINITIALIZED, KH_EV_ERROR, &n), "no error before init");\n'
+        '  /* failure is recoverable, and clean-up is still owed */\n'
+        '  EXPECT(kh_state_next(KH_ST_ARMED, KH_EV_ERROR, &n) && n == KH_ST_FAILED, "armed->failed");\n'
+        '  EXPECT(kh_state_next(KH_ST_FAILED, KH_EV_RESTORE, &n) && n == KH_ST_RESTORED, "failed->restored");\n'
+        '  EXPECT(kh_state_next(KH_ST_FAILED, KH_EV_INIT, &n) && n == KH_ST_STAGED, "failed->staged");\n'
+        '  /* adoption needs all four conditions */\n'
+        '  EXPECT(kh_marker_adopt(KH_MARKER_MAGIC, 0, 1, 0) == KH_ADOPT_DISABLED, "disabled by default");\n'
+        '  EXPECT(kh_marker_adopt(0, 1, 1, 1) == KH_ADOPT_NO_MARKER, "marker must match");\n'
+        '  EXPECT(kh_marker_adopt(KH_MARKER_MAGIC, 0, 1, 1) == KH_ADOPT_EPOCH_MISMATCH, "epoch required");\n'
+        '  EXPECT(kh_marker_adopt(KH_MARKER_MAGIC, 1, 0, 1) == KH_ADOPT_NO_EVIDENCE, "live evidence required");\n'
+        '  EXPECT(kh_marker_adopt(KH_MARKER_MAGIC, 1, 1, 1) == KH_ADOPT_OK, "all four -> adopt");\n'
+        '  printf(bad ? "BAD %d checks\\n" : "ok\\n", bad);\n'
+        '  return bad != 0;\n'
+        '}\n')
+    exe = tmp / "kh_state_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "hook state: transitions and adoption", False, f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "hook state: transitions and adoption", rc == 0 and not bad,
+           "; ".join(bad) if bad else "21 assertions")
+
+    src = (ROOT / "source/hv/defeat/hv_defeat_1360.c").read_text()
+    record("synth", "hook state: adoption is opt-in and the marker alone is not enough",
+           "kh_marker_adopt(" in src and "PL5_1360_ADOPT_ARMED 0" in src,
+           "default disabled; epoch not published")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -484,6 +545,7 @@ def main() -> int:
         synthetic_make_flag_tests()
         synthetic_registry_tests(tmp)
         synthetic_policy_tests(tmp)
+        synthetic_hook_state_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
