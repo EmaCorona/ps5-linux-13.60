@@ -57,6 +57,7 @@ extern unsigned int takeover_bin_len;
 #include "byepervisor/khook.h"
 #include "byepervisor/khook_state.h"
 #include "byepervisor/paging.h"
+#include "boot/post_resume_contract.h"
 
 /* Inheriting an already-armed state from the cave marker is off unless a build
  * explicitly asks for it. Even then, kh_marker_adopt() also demands proof that
@@ -99,6 +100,44 @@ extern unsigned int takeover_bin_len;
  */
 #ifndef PL5_1360_TAKEOVER
 #define PL5_1360_TAKEOVER 0
+#endif
+
+/* Arming the experimental #DB hook is opt-in and doubly gated: the flag AND an
+ * explicit acknowledgement. A default build stages and sleeps; it does not hijack
+ * shared CPU structures.
+ *
+ * Rationale: the hook is global (IDT[1] + the TSS IST slot), its ownership check
+ * is not implemented yet, and the measured consequence of getting it wrong is a
+ * killed loader service or a powered-off console (docs/1360-khook-death.md). A
+ * build must therefore not be able to arm it by accident -- e.g. by bumping
+ * PL5_DIAG -- which is what this guard prevents. To arm, both flags explicitly:
+ *     make PL5_1360_ARM_HOOK=1 PL5_1360_ACK_EXPERIMENTAL_ARMING=1
+ *
+ * These live outside the phase-B conditional on purpose: whether the hook may be
+ * armed is independent of whether the takeover is built-in. */
+#ifndef PL5_1360_ARM_HOOK
+#define PL5_1360_ARM_HOOK 0
+#endif
+#ifndef PL5_1360_ACK_EXPERIMENTAL_ARMING
+#define PL5_1360_ACK_EXPERIMENTAL_ARMING 0
+#endif
+#if PL5_1360_ARM_HOOK && !PL5_1360_ACK_EXPERIMENTAL_ARMING
+#error "13.60: PL5_1360_ARM_HOOK=1 requires PL5_1360_ACK_EXPERIMENTAL_ARMING=1 -- the #DB hook is not safe to arm yet (docs/1360-khook-design.md)"
+#endif
+#if PL5_1360_ARM_HOOK
+#define PL5_1360_ARMING "armed"
+#else
+#define PL5_1360_ARMING "disabled (staging only)"
+#endif
+
+/* Pre-sleep staging of the Linux hand-off (Task 15). Off by default: the ~64 MB
+ * cave write at arm time is still a suspect for the wake crash recorded in
+ * docs/1360-khook-death.md, so moving it earlier is a change to be measured as a
+ * single variable, not a silent improvement. With it on, everything the chain needs
+ * after the wake is in place before the sleep, and the post-resume side stops being
+ * the only path that prepares it. */
+#ifndef PL5_1360_STAGE_PRE_SLEEP
+#define PL5_1360_STAGE_PRE_SLEEP 0
 #endif
 
 #if PL5_1360_TAKEOVER
@@ -610,9 +649,18 @@ int hv_defeat_1360_arm(void)
     notify("13.60: arm-late: no staged hook\n");
     return -1;
   }
+#if PL5_1360_ARM_HOOK
   rc = kh_arm(&g_hook);
   notify("13.60: arm-late: kh_arm rc=%d (gate+IST written now)\n", rc);
   return rc;
+#else
+  /* Arming is compiled out in this build (see PL5_1360_ARM_HOOK above): the
+   * staging is in place and the hook stays uninstalled. */
+  (void)rc;
+  notify("13.60: arm-late: arming %s; gate and IST NOT written\n",
+         PL5_1360_ARMING);
+  return 0;
+#endif
 #else
   return -1;
 #endif
@@ -636,6 +684,29 @@ int hv_defeat_1360_post_resume(void) {
     return -1;
   }
 #endif
+
+  /* Who continues is decided, not assumed. The measurement says the payload process
+   * (and elfldr, and the helper) do not survive this sleep, so userland liveness is
+   * an input only when it has been demonstrated -- never inferred from the fact that
+   * this function is running. See include/boot/post_resume_contract.h. */
+  {
+    unsigned staged = 0;
+    if (g_hook_valid)
+      staged |= PL5_STAGE_PAGETABLES | PL5_STAGE_CHAIN;
+#if PL5_1360_ARM_HOOK
+    staged |= PL5_STAGE_GATE;
+#endif
+#if PL5_1360_STAGE_PRE_SLEEP
+    staged |= PL5_STAGE_SHELLCODE | PL5_STAGE_LINUX_INFO;
+#endif
+    struct pl5_cont_decision d = pl5_continuation_choose(staged, /*userland_shown_alive=*/0);
+    notify("13.60: continuation owner: %s (%s)\n",
+           pl5_continuation_text(d.owner), pl5_cont_reason_text(d.reason));
+    if (d.owner == PL5_CONT_NONE) {
+      notify("13.60: refusing to continue: nothing staged before the sleep.\n");
+      return -1;
+    }
+  }
 
   if (g_redirected) {
     /* break_hv runs at the HV's startup_mp call and stamps the cookie, which
@@ -925,11 +996,13 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
   kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED);
   return 0;
 #else
+#if PL5_1360_ARM_HOOK
   notify("13.60: running khook self-test...\n");
   if (khook_selftest())
     notify("13.60: khook self-test FAILED (arm path may be broken).\n");
   else
     notify("13.60: khook self-test passed.\n");
+#endif
 
   notify("13.60: escaping hypervisor (Byepervisor khook)...\n");
 
@@ -998,6 +1071,7 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 # endif
   notify("13.60: P4 diag=%d skip_mask=%#x\n", PL5_DIAG, kh_diag_skip_mask);
 #endif
+#if PL5_1360_ARM_HOOK
   ret = install_resume_hook(cave_addr, PL5_DIAG >= 2);
   if (ret) {
     notify("13.60: hook install failed (khook rc=%d).\n", ret);
@@ -1006,6 +1080,22 @@ int hv_defeat_1360(void *shellcode_kernel, size_t shellcode_kernel_len) {
 
   notify("13.60: hypervisor escape armed (diag=%d). Rest mode -> payload.\n",
          PL5_DIAG);
+#else
+  /* Staging is complete; the hook is NOT installed. Nothing hijacks shared CPU
+   * structures in this build, which is the default and the only state that is
+   * demonstrably safe today. */
+  notify("13.60: arming %s: escape staged, hook NOT installed (arm=%d ack=%d)\n",
+         PL5_1360_ARMING, PL5_1360_ARM_HOOK, PL5_1360_ACK_EXPERIMENTAL_ARMING);
+#endif
+
+#if PL5_1360_STAGE_PRE_SLEEP
+  /* Everything the continuation needs is written before the sleep, so the post-wake
+   * side does not have to exist in userland to prepare it. */
+  if (stage_hv_boot())
+    notify("13.60: pre-sleep staging FAILED; the chain alone cannot continue.\n");
+  else
+    notify("13.60: pre-sleep staging complete (shellcode, linux_info, images).\n");
+#endif
   return 0;
 #endif
 }

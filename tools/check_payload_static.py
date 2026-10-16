@@ -61,15 +61,24 @@ TAKEOVER_FW_KNOWN = {1320: {"size": 144}}
 PHASE_B_PRESENT_MARKER = b"13.60: [VERIFY] vmmcall-stub"
 PHASE_A_SIBLING_MARKER = b"13.20: [VERIFY] vmmcall-stub"
 
+# Arming the experimental #DB hook is opt-in (Task 13.3). These two strings are
+# compiled into the 13.60 code path only with PL5_1360_ARM_HOOK=1, so their
+# presence/absence in the artifact is how a regression is detected without a
+# console. The 13.20 file has its own self-test strings and is not a marker here.
+ARMING_PRESENT_MARKER = b"13.60: arm-late: kh_arm rc"
+ARMING_STAGING_MARKER = b"hook NOT installed (arm="
+
 
 class Checker:
     def __init__(self, elf: Path, manifest: Path, shellcode_dir: Path,
-                 takeover: int, takeover_fw: int, report: Path | None):
+                 takeover: int, takeover_fw: int, report: Path | None,
+                 arming: int = 0):
         self.elf = elf
         self.manifest = manifest
         self.shellcode_dir = shellcode_dir
         self.takeover = takeover
         self.takeover_fw = takeover_fw
+        self.arming = arming
         self.report = report
         self.data = b""
         self.failures = 0
@@ -90,6 +99,7 @@ class Checker:
                 f"elf: {self.elf}", f"elf_sha256: {sha_elf}",
                 f"takeover_expected: {self.takeover}",
                 f"takeover_fw_expected: {self.takeover_fw}",
+                f"arming_expected: {self.arming}",
                 f"result: {'PASS' if self.failures == 0 else 'FAIL'}", "", "blobs:"]
         body += [f"  {name}: {size} bytes sha256={digest}"
                  for name, size, digest in blobs]
@@ -113,6 +123,17 @@ class Checker:
         self.ok(e_machine == EM_X86_64, f"elf: machine x86-64 ({e_machine})")
         entry = struct.unpack_from("<Q", d, 24)[0]
         self.ok(entry != 0, f"elf: entry point non-zero (0x{entry:x})")
+
+    def check_arming(self) -> None:
+        """A default build must not be able to arm the experimental hook."""
+        present = ARMING_PRESENT_MARKER in self.data
+        if self.arming:
+            self.ok(present, "arming: compiled IN (build asked for it explicitly)")
+        else:
+            self.ok(not present,
+                    "arming: compiled OUT in this build (no 13.60 arming marker)")
+            self.ok(ARMING_STAGING_MARKER in self.data,
+                    "arming: the staging-only notice is present")
 
     def check_manifest(self) -> None:
         src = self.manifest.read_text()
@@ -180,6 +201,8 @@ def main() -> int:
     ap.add_argument("--manifest", default=str(ROOT / "source/manifest/manifest.c"))
     ap.add_argument("--shellcode-dir", default=str(ROOT / "source/shellcode"))
     ap.add_argument("--takeover", type=int, choices=(0, 1), default=0)
+    ap.add_argument("--arming", type=int, choices=(0, 1), default=0,
+                    help="was this build made with PL5_1360_ARM_HOOK=1?")
     ap.add_argument("--takeover-fw", type=int, default=1320)
     ap.add_argument("--report", default=None)
     args = ap.parse_args()
@@ -199,11 +222,13 @@ def main() -> int:
         return 2
 
     c = Checker(elf, manifest, Path(args.shellcode_dir), args.takeover,
-                args.takeover_fw, Path(args.report) if args.report else None)
+                args.takeover_fw, Path(args.report) if args.report else None,
+                args.arming)
     c.data = data
     c.check_elf_header()
     c.check_manifest()
     c.check_phase_b()
+    c.check_arming()
     blobs = c.check_blobs()
     provenance_ok = c.check_takeover_fw(blobs)
     c.emit_report(hashlib.sha256(data).hexdigest(), blobs)

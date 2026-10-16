@@ -804,6 +804,55 @@ def synthetic_restore_tests(tmp: Path) -> None:
            and "kh->saved_ist" in khook, "kh_restore() present")
 
 
+def synthetic_post_resume_tests(tmp: Path) -> None:
+    """The post-resume contract: who continues is decided, and userland is only an
+    option when its liveness was demonstrated."""
+    if not have("gcc"):
+        record("synth", "post-resume: continuation owner", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "post_resume_probe.c"
+    prog.write_text(
+        '#include "boot/post_resume_contract.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(c, l) do { if (!(c)) { printf("BAD %s\\n", l); bad++; } } while (0)\n'
+        'static enum pl5_continuation owner(unsigned m, int alive) {\n'
+        '  return pl5_continuation_choose(m, alive).owner; }\n'
+        'int main(void) {\n'
+        '  unsigned full = PL5_STAGE_PAGETABLES | PL5_STAGE_SHELLCODE |\n'
+        '                  PL5_STAGE_LINUX_INFO | PL5_STAGE_CHAIN;\n'
+        '  EXP(pl5_staging_ok(full), "the pre-sleep set is satisfied");\n'
+        '  EXP(!pl5_staging_ok(PL5_STAGE_CHAIN), "chain alone is not the full set");\n'
+        '  EXP(owner(full, 0) == PL5_CONT_KERNEL_CHAIN, "staged chain wins, no userland needed");\n'
+        '  EXP(owner(full, 1) == PL5_CONT_KERNEL_CHAIN, "staged chain still wins when userland is alive");\n'
+        '  unsigned chain_only = PL5_STAGE_PAGETABLES | PL5_STAGE_CHAIN;\n'
+        '  EXP(owner(chain_only, 0) == PL5_CONT_NONE, "incomplete staging + userland not proven: refuse");\n'
+        '  EXP(owner(chain_only, 1) == PL5_CONT_USERLAND, "userland only when shown alive");\n'
+        '  EXP(owner(0, 0) == PL5_CONT_NONE, "nothing staged: refuse");\n'
+        '  EXP(!pl5_userland_liveness_acceptable(1, 0, 0), "a log line is not liveness");\n'
+        '  EXP(!pl5_userland_liveness_acceptable(1, 1, 0), "present but not serving: not enough");\n'
+        '  EXP(pl5_userland_liveness_acceptable(0, 1, 1), "present and serving: acceptable");\n'
+        '  EXP((PL5_STAGE_ALL & PL5_STAGE_GATE) != 0, "the gate is an explicit staged item");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "post_resume_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "post-resume: continuation owner", False,
+               f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "post-resume: continuation owner", rc == 0 and not bad,
+           "; ".join(bad) if bad else "11 assertions")
+
+    src = (ROOT / "source/hv/defeat/hv_defeat_1360.c").read_text()
+    record("synth", "post-resume: the decision is logged, not assumed",
+           "pl5_continuation_choose(" in src and "refusing to continue" in src
+           and "PL5_1360_STAGE_PRE_SLEEP" in src,
+           "owner logged; pre-sleep staging behind a flag")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -823,6 +872,7 @@ def main() -> int:
         synthetic_frame_contract_tests(tmp)
         synthetic_ownership_tests(tmp)
         synthetic_restore_tests(tmp)
+        synthetic_post_resume_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
