@@ -6,6 +6,10 @@
 #include "loader.h"
 #include "prepare_resume.h"
 #include "utils.h"
+
+#ifdef PL5_VERIFY_MODE
+int pl5_verify_offsets(void);
+#endif
 #include <signal.h>
 #include <unistd.h>
 
@@ -36,6 +40,13 @@ int main(void) {
            "your fw is supported.");
     return -1;
   }
+
+#ifdef PL5_VERIFY_MODE
+  /* WS2: diagnostica di sola verifica. Gira subito dopo setup_env() (che ha gia'
+   * popolato env_offset) e esce: nessun fetch dell'immagine, nessun escape,
+   * nessun armo, nessuno standby. Vedi tools/pl5-verify-offsets.c. */
+  return pl5_verify_offsets();
+#endif
 
 #ifndef PL5_OFFSETS_MODE
   if (fetch_linux(&linux_i)) {

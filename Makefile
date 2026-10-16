@@ -1,4 +1,4 @@
-.PHONY: all clean version offsets clean-objs
+.PHONY: all clean version offsets verify-offsets clean-objs
 
 # The configuration-stamp rule below defines a target before `all`, so the
 # default goal is stated explicitly instead of being "whichever target came
@@ -108,6 +108,16 @@ offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEO
 	$(CC) $(CFLAGS) -DPL5_OFFSETS_MODE $(SRC) tools/pl5-offsets.c $(LDFLAGS) \
 		-o bin/pLinux5-NG-offsets.elf
 	@echo "built bin/pLinux5-NG-offsets.elf"
+
+# WS2: diagnostica di verifica degli offset. Stesso entrypoint del payload, ma
+# -DPL5_VERIFY_MODE esce subito dopo setup_env(): nessun escape, nessun armo,
+# nessuno standby. Serve a confrontare i valori risolti con la tabella in uso e
+# con il kernel vivo, senza toccare nulla.
+verify-offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \
+		-o bin/pl5-verify-offsets.elf
+	@echo "built bin/pl5-verify-offsets.elf"
 
 $(SC_0607_H):
 	$(MAKE) -C source/shellcode/0607
