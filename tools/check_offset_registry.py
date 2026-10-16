@@ -147,6 +147,31 @@ def main() -> int:
     clashy = {v: ns for v, ns in by_value.items() if len(ns) > 1}
     ok(not clashy, f"no value is claimed in two namespaces{'' if not clashy else ' -> ' + str(clashy)}")
 
+    # Every field without a value must say what its absence blocks, and nothing
+    # may be declared a minimal-boot blocker while it is zero.
+    reqs = reg.get("boot_requirements", {}).get("fields", {})
+    unresolved = [e["field"] for e in valid if e["class"] in ZERO_CLASSES]
+    missing_req = [f for f in unresolved if f not in reqs]
+    ok(not missing_req,
+       "every valueless field states what it blocks"
+       + ('' if not missing_req else f" (unexplained: {missing_req})"))
+
+    bad_req = [f for f, r in reqs.items()
+               if r.get("blocks") not in {"boot_minimal", "phase_b", "optional", "none"}]
+    ok(not bad_req, f"boot-requirement dispositions are from the fixed vocabulary"
+                    + ('' if not bad_req else f" -> {bad_req}"))
+
+    ghost = [f for f in reqs if f not in reg_fields]
+    ok(not ghost, "boot requirements name fields that exist"
+                  + ('' if not ghost else f" -> {ghost}"))
+
+    values = {e["field"]: int(e["value"], 0) for e in valid}
+    blocked = [f for f, r in reqs.items()
+               if r.get("blocks") == "boot_minimal" and values.get(f) == 0]
+    ok(not blocked,
+       "no zero is declared a minimal-boot blocker (it would be a contradiction)"
+       + ('' if not blocked else f" -> {blocked}"))
+
     # The one thing phase B depends on and does not have.
     hv = [r for r in reg.get("takeover_requirements", [])
           if r.get("firmware") == "13.60" and r["namespace"] == "PHYSICAL"]

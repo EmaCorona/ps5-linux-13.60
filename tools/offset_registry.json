@@ -75,8 +75,28 @@
     {"field": "IDT", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3BB4300", "used_by": "hook (IDT/IST)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"},
     {"field": "COMMON_TSS", "namespace": "KDATA_REL", "class": "KNOWN_STATIC", "value": "0x3BB6FE0", "used_by": "hook (IST)", "provenance": "Byepervisor 13_60.h", "verified_by": "tools/verify_off_1360.py"}
   ],
-  "takeover_requirements": [
-    {"name": "HV_VMMCALL_HANDLER_PA", "firmware": "13.60", "namespace": "PHYSICAL", "class": "UNKNOWN", "value": null, "used_by": "phase B (13.60)", "provenance": "no verified 13.60 HV image: the guest VMMCALL wrapper 0xC16A10 is a different entity", "verified_by": "none - see docs/1360-hv-pas-offline-verdict.md"},
+  "boot_requirements": {
+    "_comment": "Per field: what its absence blocks. boot_minimal = mandatory to reach the kernel entry point; phase_b = mandatory only for the post-resume takeover; optional = absence is handled by the code; none = not read on the 13.60 path. Derived from the call sites in docs/BOOT-REQUIREMENTS-1360.md: main.c skips prepare_resume() for fw >= 0x0800, so the shellcode_kernel_args writers are not on the 13.60 path.",
+    "boot_minimal_exceptions": [
+      "KERNEL_CFI_CHECK: also read by hv_defeat_1360.c (phase-A patch + read-back)"
+    ],
+    "fields": {
+      "FUN_SMP_NO_RENDEVOUS_BARRIER": {"blocks": "none", "why": "prepare_sck_args() only; the shellcode can supply a no-op"},
+      "IOMMU_SOFTC": {"blocks": "none", "why": "prepare_sck_args() / hw/iommu.c only; IOMMU setup lives in the legacy kernel shellcode"},
+      "KERNEL_UART_OVERRIDE": {"blocks": "none", "why": "prepare_sck_args() only"},
+      "KERNEL_CODE_CAVE": {"blocks": "none", "why": "prepare_sck_args() (guarded) and the legacy defeat vectors only; 0x2D39000 is kernel data"},
+      "HV_CODE_CAVE_PA": {"blocks": "none", "why": "prepare_sck_args() only; the Byepervisor vector runs from startup_mp"},
+      "HV_HANDLE_VMEXIT_PA": {"blocks": "none", "why": "prepare_sck_args() only (same as HV_CODE_CAVE_PA)"},
+      "FUN_TRANSMITTER_CONTROL": {"blocks": "none", "why": "prepare_sck_args() only; display bring-up is not on the 13.60 path"},
+      "FUN_MP3_INITIALIZE": {"blocks": "none", "why": "prepare_sck_args() only; audio is not on the 13.60 path"},
+      "FUN_MP3_INVOKE": {"blocks": "none", "why": "prepare_sck_args() only; audio is not on the 13.60 path"},
+      "PS5_WIFI_FW_OFFSET": {"blocks": "optional", "why": "dump_device_firmwares() runs for 13.60 but fails gracefully when the offset is 0 (loader.c logs 'Continuing')"},
+      "PS5_WIFI_FW_SIZE": {"blocks": "optional", "why": "same as PS5_WIFI_FW_OFFSET"},
+      "DATA_BASE_GVMSPACE": {"blocks": "none", "why": "read by gpu_init(), which has no caller in this tree"},
+      "G_VBIOS": {"blocks": "none", "why": "prepare_sck_args() only; the DISPUTED value is the open item, not the absence"}
+    }
+  },
+  "takeover_requirements": [    {"name": "HV_VMMCALL_HANDLER_PA", "firmware": "13.60", "namespace": "PHYSICAL", "class": "UNKNOWN", "value": null, "used_by": "phase B (13.60)", "provenance": "no verified 13.60 HV image: the guest VMMCALL wrapper 0xC16A10 is a different entity", "verified_by": "none - see docs/1360-hv-pas-offline-verdict.md"},
     {"name": "HV_VMMCALL_HANDLER_PA", "firmware": "13.20", "namespace": "PHYSICAL", "class": "KNOWN_STATIC", "value": "0x62847375", "used_by": "phase B (13.20)", "provenance": "13.20 HV image (out of scope of the 13.60 capture)", "verified_by": "hv_defeat_1320.c works on hardware"}
   ]
 }
