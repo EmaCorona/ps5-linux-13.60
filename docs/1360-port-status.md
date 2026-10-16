@@ -596,3 +596,58 @@ naming it once. Same class of contamination, different file; left alone because
 13.20 is the working platform and the change is untestable here.
 `solution/shellcode/hv_takeover/takeover.c` remains dead code (absent from the
 Makefile) and still carries the 13.20 defines.
+
+## Update — 2026-10-16 (round 6) — armed-gate anatomy on 13.60; the 13.20 differential is blocked
+
+Offline analysis of `k1360.bin` (sha256 `c3f745e2…cddd`), no console involved.
+
+### The 13.60 IDT/TSS decode cleanly
+
+`IDT = 0x3BB4300` (Byepervisor-verbatim) is a valid 32-vector table: every gate
+present, type `0xE`, selector `0x20`, handlers are 16-byte `jmp <handler>; int3`
+thunks in a table at `ktext+0x26A000`. IST assignment is the standard kernel map:
+
+| vector | thunk | IST |
+| --- | --- | --- |
+| #DF (8) | ktext+0x26A330 | IST1 |
+| NMI (2) | ktext+0x26A308 | IST2 |
+| #MC (18) | ktext+0x26A378 | IST3 |
+| **#DB (1)** | ktext+0x26A070 | **IST4** |
+| #VC (29) | — | IST5 |
+| **IST6 / IST7** | — | **0 (free)** |
+
+`COMMON_TSS = 0x3BB6FE0` also decodes: `RSP0 = 0xffffff8097807a40` is a canonical
+kernel stack, i.e. it passes the khook's own sanity check
+(`(RSP0 >> 47) == 0x1FFFF`).
+
+### What arming actually does
+
+From `khook.c` (identical to upstream `Byepervisor-Reborn/khook.c` apart from the
+P4 bisection masks on `kh_diag_skip_mask`):
+
+* the #DB **gate** is rewritten to the ROP pivot
+  (`kgadget(KERNEL_GADGET_PIVOT_ADD_RSP28_RET)`) with `IST = kh->ist_index` (6);
+* the hijack **chain pointer** is written into the TSS **IST6 slot**.
+
+So IST6 is overloaded: it is simultaneously the stack pointer the CPU loads for
+#DB *and* the redirect surface. Any #DB taken while armed therefore diverts into
+the chain with something that is not a real stack. That is fatal by construction
+if a #DB arrives that the design did not intend to catch.
+
+### Not a port artifact
+
+`HOOK_IST` (6), `TSS_STRIDE` (0x68) and `HOOK_CORE` (0) are **identical** in
+`hv_defeat_1320.c` and `hv_defeat_1360.c`, and the vendored khook differs from
+upstream only by the P4 masks. `IDT`/`COMMON_TSS` differ between the two
+firmwares by a constant `+0x24000` (same delta as `PMAP_STORE`) and both values
+are Byepervisor-published. So the code does not arm 13.60 any differently from
+13.20: whatever differs is environmental.
+
+### Blocked: the 13.20 differential
+
+The planned comparison (IDT/IST/TSS contents and the #DB handler between 13.20
+and 13.60) **cannot be done today**: no 13.20 (or 13.00) kernel dump is
+available. A repository/code search found only
+`terrafirma2021/ps5-13.60-kernel-dump`. Without a second image there is nothing
+to diff, so "why is the armed gate fatal on 13.60 and not on 13.20" is not
+answerable offline. It needs either a 13.20 image or a live observation.
