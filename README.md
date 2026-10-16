@@ -18,6 +18,19 @@ The project is a work in progress. Firmware support is version-specific; a share
 | 13.20 | **Supported** — Linux boot confirmed. |
 | 13.60 | **Experimental / blocked** — phase A has been exercised on hardware; the hook and post-resume takeover remain unresolved. |
 
+### What is verified for 13.60
+
+| layer | state |
+| --- | --- |
+| reproducible build + static gates on every push | verified ([`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md), CI) |
+| kernel-relative offsets (namespace, provenance, re-derivation from the capture) | verified offline ([`docs/OFFSETS-REGISTRY.md`](docs/OFFSETS-REGISTRY.md)) |
+| live-read safety (`.text` on 13.60 refused) | enforced in code ([`docs/LIVE-READ-POLICY.md`](docs/LIVE-READ-POLICY.md)) |
+| phase B | disabled by design; its one missing value is `BLOCKED` ([`docs/1360-hv-source-search.md`](docs/1360-hv-source-search.md)) |
+| hook safety, post-resume continuity | **not achieved** ([`docs/1360-khook-design.md`](docs/1360-khook-design.md), [`docs/1360-post-resume-contract.md`](docs/1360-post-resume-contract.md)) |
+| Linux boot on 13.60 | **not achieved** |
+
+The per-criterion release view is in [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md).
+
 ## Overview
 
 The existing Linux boot path prepares the kernel and initrd, sets up <code>boot_params</code> and e820 memory information, initializes required hardware, and transfers execution to the Linux entry point.

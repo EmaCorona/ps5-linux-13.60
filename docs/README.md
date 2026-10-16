@@ -28,6 +28,9 @@ The three blockers that currently define the 13.60 work, in one line each:
 | [`OFFSETS-REGISTRY.md`](OFFSETS-REGISTRY.md) | the typed registry: namespace, evidence class and provenance per offset field, and the checks that enforce them | you are about to use an address, or doubt one |
 | [`BOOT-REQUIREMENTS-1360.md`](BOOT-REQUIREMENTS-1360.md) | per unresolved field, the call site and what its absence actually blocks | a zero looks like a blocker, or you are about to fill one |
 | [`BOOT-LOADER-REVIEW.md`](BOOT-LOADER-REVIEW.md) | review of the kernel/initrd load path: defects found and fixed, the hand-off validation, and what only hardware can show | you are touching the Linux hand-off |
+| [`1360-hv-source-search.md`](1360-hv-source-search.md) | the search for a verified 13.60 hypervisor reference and why the verdict is BLOCKED | you are tempted to fill an `HV_*_PA` |
+| [`1360-minimal-params.md`](1360-minimal-params.md) | which parameters the selected vector actually reads, and which struct fields it never touches | you are about to "complete" the offset table |
+| [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md) | the completion criteria with status and evidence per line | you are deciding what may be claimed or shipped |
 | [`SUBSYSTEM-MATRIX-1360.md`](SUBSYSTEM-MATRIX-1360.md) | which subsystems are on the path to the kernel entry, which belong to "usable Linux", and what each needs | you are about to call something a boot blocker (or a boot) |
 | [`LIVE-READ-POLICY.md`](LIVE-READ-POLICY.md) | what a live payload may read, where the decision lives, and why `.text` on 13.60 is refused unconditionally | you are touching a live-read tool, or reading an old "next step" |
 | [`SOURCE-MAP.md`](SOURCE-MAP.md) | what is live code, what is vendored, what is generated, what is history — and which artifacts are known dead | you are new to the tree, or a file looks canonical but might not be |
