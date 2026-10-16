@@ -417,6 +417,59 @@ def synthetic_registry_tests(tmp: Path) -> None:
            rc == 1 and "same fields" in out, f"exit {rc}")
 
 
+def synthetic_policy_tests(tmp: Path) -> None:
+    """The live-read policy must refuse before any read, and the payload must use
+    it. Compiled and executed on the host: no console involved."""
+    header = ROOT / "include/tools/pl5_dump_policy.h"
+    if not header.is_file():
+        record("synth", "policy: header present", False, "SKIP: missing")
+        return
+
+    prog = tmp / "policy_probe.c"
+    prog.write_text(
+        '#include "tools/pl5_dump_policy.h"\n'
+        '#include <stdio.h>\n'
+        'int main(void) {\n'
+        '  struct { const char *n; int got; int want; } c[] = {\n'
+        '    {"1360 .text committed", pl5_decide(0x1360, 0x1360, PL5_REG_TEXT, 1), PL5_REFUSE_FW_TEXT},\n'
+        '    {"1360 .data committed", pl5_decide(0x1360, 0x1360, PL5_REG_DATA, 1), PL5_ALLOW},\n'
+        '    {"1360 .text via 1320 tables", pl5_decide(0x1360, 0x1320, PL5_REG_TEXT, 1), PL5_REFUSE_FW_MISMATCH},\n'
+        '    {"1320 .text uncommitted", pl5_decide(0x1320, 0x1320, PL5_REG_TEXT, 0), PL5_REFUSE_NOT_COMMITTED},\n'
+        '    {"1320 .text committed", pl5_decide(0x1320, 0x1320, PL5_REG_TEXT, 1), PL5_ALLOW},\n'
+        '    {"1320 hv committed", pl5_decide(0x1320, 0x1320, PL5_REG_HV, 1), PL5_ALLOW},\n'
+        '  };\n'
+        '  int rc = 0;\n'
+        '  for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {\n'
+        '    printf("%s: %s\\n", c[i].n, c[i].got == c[i].want ? "ok" : "BAD");\n'
+        '    if (c[i].got != c[i].want) rc = 1;\n'
+        '  }\n'
+        '  printf("is_fatal(1360)=%d is_fatal(1320)=%d\\n",\n'
+        '         pl5_text_read_is_fatal(0x1360), pl5_text_read_is_fatal(0x1320));\n'
+        '  if (!pl5_text_read_is_fatal(0x1360) || pl5_text_read_is_fatal(0x1320)) rc = 1;\n'
+        '  return rc;\n'
+        '}\n')
+    if not have("gcc"):
+        record("synth", "policy: refusals before any read", False, "SKIP: gcc unavailable")
+        return
+    exe = tmp / "policy_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"),
+                   str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "policy: refusals before any read", False, f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.endswith("BAD")]
+    record("synth", "policy: refusals before any read", rc == 0 and not bad,
+           "; ".join(bad) if bad else "6 decisions + fatal-firmware check")
+
+    # The policy must be wired into the payload, not just exist.
+    src = (ROOT / "tools/pl5-offsets.c").read_text()
+    record("synth", "policy: pl5-offsets.c applies it before reading",
+           "pl5_decide(" in src and "PL5_COMMIT_MARKER" in src
+           and src.index("pl5_decide(") < src.index("pl5_dump_offsets") + 4000,
+           "gate is at the top of pl5_dump_offsets()")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -430,6 +483,7 @@ def main() -> int:
         package_lane_tests(tmp)
         synthetic_make_flag_tests()
         synthetic_registry_tests(tmp)
+        synthetic_policy_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]

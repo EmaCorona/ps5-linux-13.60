@@ -156,6 +156,13 @@ display bring-up symbols (`G_VBIOS`, `FUN_TRANSMITTER_CONTROL`,
 
 ## 6. Proposed next steps
 
+> **Superseded for 13.60.** Step 1 below proposes reading kernel `.text` live through the
+> standalone dumper. Reading `.text` on 13.60 powers the console off, so that is **not** a next
+> step on this firmware — see [`LIVE-READ-POLICY.md`](LIVE-READ-POLICY.md) and the enforced
+> refusal in `include/tools/pl5_dump_policy.h`. The section is kept as the record of what was
+> proposed at the time; the kernel-relative values it was after were later derived offline from a
+> capture instead ([`1360-offsets-from-dump.md`](1360-offsets-from-dump.md)).
+
 1. **Standalone dumper after a successful escape + resume** —
    `tools/pl5-offsets.elf` (built with `-DPL5_OFFSETS_MODE`-less `main()`, so it
    calls `pl5_dump_offsets()` directly and does **not** require rest mode).

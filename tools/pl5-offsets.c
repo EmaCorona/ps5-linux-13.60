@@ -21,6 +21,8 @@
  */
 #include <ps5/kernel.h>
 
+#include "tools/pl5_dump_policy.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -47,6 +49,10 @@
  * So the strategy is chosen at run time: if this marker file exists on the
  * console, use the kernel VA; otherwise use the direct map. */
 #define PL5_TEXT_VA_MARKER PL5_OUT_ROOT "/pl5-text-via-va"
+
+/* Dry run is the default: merely sending this payload must not read anything.
+ * Placing this marker on the console is the operator's explicit act. */
+#define PL5_COMMIT_MARKER PL5_OUT_ROOT "/pl5-offsets-commit"
 
 #ifndef PL5_OUT_ROOT
 #define PL5_OUT_ROOT "/data"
@@ -532,7 +538,7 @@ static void scan_kernel(void) {
 
     for (size_t i = 0; i < PL5_OFF_TABLE_LEN; i++) {
       const pl5_off_t *e = &pl5_off_table[i];
-      if (e->mode != PL5_MODE_SIG || e->region == PL5_REGION_HV)
+      if (e->mode != PL5_MODE_SIG || e->region == PL5_REG_HV)
         continue;
       if (resolved[i])
         continue;
@@ -581,10 +587,27 @@ int pl5_dump_offsets(void) {
 
 #if defined(PL5_SIGTABLE_FW)
   if (fwv != PL5_SIGTABLE_FW)
-    printf("[pl5-offsets] WARNING: built with signatures for 0x%04x, running "
-           "0x%04x -- results will be unreliable\n",
+    printf("[pl5-offsets] built with signatures for 0x%04x, running 0x%04x\n",
            (unsigned)PL5_SIGTABLE_FW, fwv);
 #endif
+
+  /* The policy gate runs before anything is read. tools/pl5_dump_policy.h is
+   * the single source of this rule and is exercised on the host by
+   * tests/run_tests.py, so it cannot rot into an unused header. */
+  int committed = access(PL5_COMMIT_MARKER, F_OK) == 0;
+  enum pl5_decision d_text = pl5_decide(fwv, (uint32_t)PL5_SIGTABLE_FW,
+                                        PL5_REG_TEXT, committed);
+  printf("[pl5-offsets] policy: text=%s\n", pl5_decision_text(d_text));
+  if (d_text == PL5_REFUSE_FW_MISMATCH) {
+    printf("[pl5-offsets] refusing to run: %s\n", pl5_decision_text(d_text));
+    return 2;
+  }
+  if (!committed) {
+    printf("[pl5-offsets] dry run: create %s on the console to allow reads\n",
+           PL5_COMMIT_MARKER);
+    fflush(stdout);
+    return 0;
+  }
 
   char dir[128];
   snprintf(dir, sizeof(dir), PL5_OUT_ROOT "/pl5-%04x", fwv);
@@ -634,11 +657,13 @@ int pl5_dump_offsets(void) {
   }
 
   uint64_t got_text = 0, got_data = 0, got_hv = 0;
-  if (g_text_ok) {
+  if (d_text == PL5_ALLOW && g_text_ok) {
     if (g_read_via_va)
       dump_region(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
     else
       dump_region_safe(p_text, ktext, PL5_KERNEL_TEXT_SIZE, &got_text);
+  } else if (d_text != PL5_ALLOW) {
+    printf("[pl5-offsets] kernel .text NOT read: %s\n", pl5_decision_text(d_text));
   }
   plog("[pl5-offsets] text_dump=0x%llx bytes\n", (unsigned long long)got_text);
   uint64_t kdata = KERNEL_ADDRESS_DATA_BASE;
@@ -684,7 +709,7 @@ int pl5_dump_offsets(void) {
       how[i] = HOW_CONST;
       break;
     case PL5_MODE_HINT:
-      if (e->region == PL5_REGION_HV) {
+      if (e->region == PL5_REG_HV) {
         resolved[i] = e->value;
         how[i] = (got_hv || got_data) ? HOW_HV : HOW_MISSING;
       } else {
