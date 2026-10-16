@@ -223,18 +223,19 @@ power-cycle completo + reiniezione di helper/elfldr, e la PUP di recovery e' pro
 
 | # | test | cosa verifica | scritture nel kernel | reversibile | rischio | stato |
 | --- | --- | --- | --- | --- | --- | --- |
-| T1 | ripristino jailbreak (helper + elfldr) | la console e' di nuovo pilotabile | nessuna (payload standard dell'operatore) | n/d | **nullo** | **da fare, bloccante per tutto il resto** |
-| T2 | `make verify-offsets` (read-only) | i 13 valori della tabella + stato vivo (IDT, IOMMU_SOFTC, blob WiFi) | **nessuna** | n/d | **nullo** (provato 2 volte, 17/0) | pronto |
-| T3 | `make disarm` da solo | riporta XOTEXT/RW e azzera il marker ARMED | 3264 PDE + 3264 PTE (ripristino) | si' (e' gia' l'inverso) | **basso** | funziona, ma mai provato come *azione singola* |
-| T4 | `PL5_DIAG=16` staging senza armo | l'escape si prepara **senza** installare l'hook | XOTEXT/RW + stage nel cave | si' (T3) | **medio** (e' lo stato che ha preceduto un blocco) | provato sano una volta |
-| T5 | standby + resume con staging **non armato** | isola la causa: e' lo *staging* o l'*armo* a uccidere al resume? | come T4 + ciclo S3 | parziale (il resume non e' annullabile) | **alto** | **da progettare** (stadio da scegliere: `PL5_DIAG=15` = install con `DR7=0`, l'hook non puo' scattare) |
+| T1 | ripristino jailbreak (helper + elfldr) | la console e' di nuovo pilotabile | nessuna (payload standard dell'operatore) | n/d | **nullo** | **fatto** (operatore) |
+| T2 | `make verify-offsets` (read-only) | i 13 valori della tabella + stato vivo (IDT, IOMMU_SOFTC, blob WiFi) | **nessuna** | n/d | **nullo** | **fatto 3 volte, sempre 17/0** |
+| T3 | `make disarm` da solo | riporta XOTEXT/RW e azzera il marker ARMED | 3264 PDE + 3264 PTE (ripristino) | si' (e' gia' l'inverso) | **basso** | **fatto: sicuro**. Da solo non provoca il blocco |
+| T4 | `PL5_DIAG=16` staging senza armo | l'escape si prepara **senza** installare l'hook | XOTEXT/RW + stage nel cave | si' (T3) | **medio** | provato sano una volta; **superato da T5**, che aggiunge il ciclo S3 vero |
+| T5 | staging dell'escape + **ciclo S3 reale**, report-only (nessun armo, nessun takeover) | lo *staging* sopravvive al sonno? | ucred + XOTEXT/RW su 3264 PDE + 3264 PTE + NX sulla pagina payload. **Nessuna** scrittura di hook: con `ARM_HOOK=0` `install_resume_hook()` non e' nemmeno chiamata | parziale (il resume non e' annullabile) | **alto** (ma esito misurato benigno) | **FATTO — si': lo staging sopravvive.** Console sana, staging in vigore (`xotext=0 rw=1`), marker a 0. Il colpevole al resume non e' lo staging: passa a **install hook / armo gate+IST / redirect RSI / takeover** |
+| T5b | staging + hook **installato ma NON armato** (catena scritta, senza gate/IST) | le scritture di *install* bastano a rompere il resume, o serve l'armo? | come T5 **piu'** le scritture dell'install (catena ~384 B nel cave) | parziale | **medio-alto** | **da progettare**: oggi la guardia del report-only vieta `ARM_HOOK=1`, quindi serve estendere il flag (o uno stadio dedicato) per installare senza armare |
 | T6 | WS4: discriminare `0xA14130` vs `0xA13740` | quale dei due e' l'initializer MP3 | chiamata di funzione kernel + letture | no (crea un thread) | **alto** | **rinviato**: nessun discriminatore read-only disponibile (`.text` non leggibile; il flag e' gia' 1 a console avviata) |
 | T7 | boot Linux end-to-end | il percorso completo fino a Linux | tutto quanto sopra | no | **molto alto** | **bloccato**: serve media >= 64 GB e il takeover e' incompleto (README: Linux non avvia su 13.60) |
 | T8 | verifiche offline (cattura, registro, suite) | coerenza dei dati e dei gate | **nessuna** | n/d | **nullo** | attivo, gira a ogni commit |
 
-Ordine consigliato: **T1 → T2** (nessun rischio, riporta la console a uno stato noto) → poi **T3** da sola
-(azione singola, per escludere che il disarmo sia innocuo quando e' l'unica cosa che gira) → poi decidere fra
-**T4/T5** (capire il resume) e **T6** (MP3). **T7 per ultimo**, quando il percorso e' completo.
+Ordine consigliato: **T1 → T2** (nessun rischio, riporta la console a uno stato noto) → **T3** da sola → **T5**
+(eseguito: positivo) → ora **T5b** (installare senza armare: stringere il sospetto) → poi **T6** (MP3) e **T7**
+(boot), per ultimo.
 
 Regole applicate a ogni riga: **un payload per accensione** -> controllo di salute -> spegnimento completo;
 analisi offline di cio' che il test scrive *prima* di eseguirlo; criterio di **arresto** = se la console non
@@ -253,6 +254,8 @@ offline.
 | 2026-10-16 | **T3** | **disarmo da solo: sicuro** | `restore: pde=3264 pte=3264 | ktext XOTEXT pte 1->1 | marker 0 -> 0`, read-back `xotext=1 rw=0`; console sana (helper 200, elfldr 200, ping 3,9 ms). Su una accensione fresca XOTEXT era gia' 1, quindi il disarmo ha scritto gli stessi valori: **non e' il disarmo, da solo, a provocare il blocco**. Il sospetto per l'incidente #3 si sposta sul **percorso GPU** (DMA + ritargettatura di foglie), l'altra azione di quella sequenza |
 | 2026-10-16 | **T2** | **verifica read-only riuscita, su un secondo boot** | `pass=17 fail=0`: 13/13 valori della tabella; `IDT[0]` gate valido (selector 0x20, type 0xe, present); `IOMMU_SOFTC` puntatore kernel canonico; blob WiFi header `0x00000001` + size 500296. `ktext=0xffffffffc30b0000` (diverso dal run precedente `0xc6580000`): i valori reggono su un layout diverso. Zero scritture nel kernel, console sana |
 | 2026-10-16 | WS2b (seguito) | **INCIDENTE: console bloccata (schermo acceso)** | subito dopo, il disarmo lanciato come controllo di stato. Console irraggiungibile, schermo acceso: stessa firma dei blocchi precedenti. Causa non isolata fra i due payload: il tool GPU scrive foglie di page table GPU (e le ripristina a ogni lettura, ma non e' esente da rischio) e il disarmo scrive ~6.5k entry CPU. **Regola violata: due payload di fila senza spegnere.** Da qui in avanti: un solo payload per accensione, controllo di salute, poi spegnimento completo |
+| 2026-10-16 | **T5 (tentativo 1)** | **non raggiunge l'oggetto: si ferma prima dell'escape** | il payload esce in `fetch_linux()` con `File bzImage not found at default paths` perche' `main.c` installa le immagini Linux *prima* dell'escape e il flag report-only non lo condizionava. **Nessuna scrittura nel kernel, nessuno staging, la console non si e' mai addormentata**: costo zero. Corretto in `13cd264`: il percorso report-only salta l'installazione (T5 non avvia mai Linux, e `fetch_linux()` chiama anche `dump_device_firmwares()`, una scrittura su disco) |
+| 2026-10-16 | **T5** | **RIUSCITO: lo staging sopravvive a un ciclo standby/resume reale** | `[R0]` report-only resume reached · `[R2] ktext pde/pte … xotext=0 rw=1` · `[R3] marker = 0` · `[R4] no hook armed, no takeover, no write`. Confermato **da fuori** dal payload con `make verify-resume`: `live resume stato .text/marker PASS  xotext=0 rw=1 marker=0`, `pass=18 fail=0`; poi `verify-offsets`: `pass=17 fail=0`. Console sana (ping 3,9 ms, helper 200, elfldr 200). **Conseguenza**: non e' lo staging delle page table a uccidere al resume; il sospetto si restringe a **installazione dell'hook / armo (gate+IST) / redirect RSI / takeover post-resume** |
 
 ## Incidente WS2b/WS3 -- analisi e regole
 
