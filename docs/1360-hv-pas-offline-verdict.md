@@ -116,3 +116,55 @@ python3 -c "d=open('/home/emacorona/src/ps5-dumps/k1360.bin','rb').read(0xCC0000
 The kernel slice used for the Ghidra evidence is built by mapping `k1360.bin[0xC10000:0xC20000]`
 at VA `0xffffffff9f000000` in a one-PT_LOAD ELF (data at file offset `0x1000`, so the program
 headers stay inside the padding).
+
+---
+
+## Addendum — 2026-10-16: il binario `1360linux.elf` contiene indirizzi fisici HV
+
+**Domanda dell'operatore:** "qui non lo hai trovato? `~/Downloads/1360linux.elf`". Il verdetto sopra copre il
+PUP e la cattura kernel; **l'ELF binario non era citato**. Ricercato ora, e il quadro cambia.
+
+### Fatti (riproducibili)
+
+* artefatto `1360linux.elf`, 237448 B, sha256 `e51a0298cb2c97b71be0ddad9f070b574c110c899d9fe513562355272fc81226`
+  — **lo stesso** già usato per risolvere i valori 13.60 del registro.
+* contiene indirizzi HV: `0x62806f00` (code cave, il valore noto per ≤7.61), `0x6282cbcb`, `0x6282b45d`,
+  `0x6282ebd0`, `0x6282dfeb`, `0x62841ce0`, `0x62841d50`, `0x6283d800` (gli handler VMEXIT che il §1 elenca
+  per gli altri firmware) **e `0x62847375`**, il valore che il nostro percorso 13.20 *funzionante* usa come
+  handler VMMCALL (`hv_defeat_1320.c:149`).
+* i dieci valori 13.60 del registro compaiono **una volta ciascuno** in una finestra di ~330 B (offset
+  179120–179448), insieme a ~14 valori di gadgettistica 13.60 del registro. Quella finestra è dati **13.60**
+  per identificazione incrociata, non per somiglianza.
+* **dentro quella finestra**, all'offset 179360, c'è `0x62847375` — nella stessa posizione relativa in cui le
+  voci degli altri firmware portano il loro handler HV.
+* stringhe del loader (il binario cita la propria provenienza e ha un auto-controllo):
+  `"13.60 offsets are incomplete - refusing to arm"`, `"See HVBUG/findings/LINUX-OFFSETS-13.60-DERIVED.md"`,
+  `"could not derive H from the EFI map - refusing to arm"`, `"SCK>5h-skipped: HDMI ops are 13.60-only
+  offsets, fw=0x%x"`.
+
+### Stato: **candidato, NON confermato**
+
+Non lo adotto e non lo scrivo nel registro. Perché non basta:
+
+1. **il layout della tabella non è dimostrato.** La mia prima ipotesi (record da 480 B) è **sbagliata**: due
+   finestre adiacenti contengono entrambe valori 13.60. Senza il layout non posso attribuire quel campo a
+   una voce invece che a quella accanto;
+2. **`0x62847375` è anche il valore del 13.20**, quindi non posso escludere che il loader abbia **duplicato
+   la costante 13.20** nella voce 13.60 (placeholder per duplicazione) invece di averne una verificata;
+3. il loader dichiara di **derivare `H` a runtime dalla mappa EFI** ("could not derive H from the EFI map"):
+   se è così, la costante nel file può essere un valore *atteso o di riserva*, non quello usato.
+
+**Rischio se sbagliato:** il takeover scrive su `kdldmap(0) + PA`; un PA errato significa scrivere in memoria
+HV arbitraria — la classe di errore che questo progetto rifiuta.
+
+### Verifica necessaria prima di qualunque uso
+
+1. derivare il layout reale della tabella confrontando le voci **13.20 e 13.60** campo per campo, usando i
+   valori 13.20 dal nostro sorgente funzionante (`off_1320.c`) e i 13.60 dal registro;
+2. stabilire se la tabella è indicizzata per firmware e con quale stride, senza assumerlo;
+3. cercare la fonte citata (`HVBUG/findings/LINUX-OFFSETS-13.60-DERIVED.md`): non risulta pubblica; se
+   compare, diventa la seconda fonte indipendente che serve;
+4. capire la derivazione da mappa EFI: se il valore è derivato a runtime, il percorso giusto non è "copiare
+   la costante" ma replicare la derivazione;
+5. solo dopo, un test di conferma a rischio controllato, che sappia distinguere "ha funzionato" da "ha
+   scritto nel posto sbagliato".
