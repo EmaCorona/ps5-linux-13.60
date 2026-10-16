@@ -22,6 +22,19 @@ OBJ = $(SRC:.S=.o)
 
 all: $(dump)
 
+# Configuration stamp: the blob carries one firmware's constants, so switching
+# PL5_TAKEOVER_FW must rebuild it even without an explicit clean. The stamp file
+# holds the flag value and is rewritten only when that value changes. Stated
+# after `all`/OBJ so the default goal stays `all` and OBJ is defined.
+STAMP := .pl5-config.stamp
+
+.PHONY: FORCE
+FORCE:
+$(STAMP): FORCE
+	@printf '%s\n' 'PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW)' | cmp -s - $@ \
+		|| printf '%s\n' 'PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW)' > $@
+$(OBJ): $(STAMP)
+
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o $(TARGET)
 

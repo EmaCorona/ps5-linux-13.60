@@ -19,6 +19,20 @@ OBJ = $(SRC:.c=.o)
 
 all: $(dump)
 
+# Configuration stamp: CFLAGS is not an input of any rule, so a changed flag
+# would otherwise reuse objects built with the previous value. The stamp file
+# holds the flag value and is rewritten only when that value changes, which
+# makes the objects depend on it and rebuild exactly then. Stated after
+# `all`/OBJ so the default goal stays `all` and OBJ is defined.
+STAMP := .pl5-config.stamp
+
+.PHONY: FORCE
+FORCE:
+$(STAMP): FORCE
+	@printf '%s\n' 'PL5_HV_STOP=$(PL5_HV_STOP)' | cmp -s - $@ \
+		|| printf '%s\n' 'PL5_HV_STOP=$(PL5_HV_STOP)' > $@
+$(OBJ): $(STAMP)
+
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o $(TARGET)
 

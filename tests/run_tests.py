@@ -251,6 +251,61 @@ def real_capture_tests(tmp: Path, py: str | None) -> None:
            rc == 1 and "GAD_WRMSR_RET" in out and "FAIL" in out, f"exit {rc}")
 
 
+def synthetic_make_flag_tests() -> None:
+    """A changed build flag must regenerate the blob with no explicit clean.
+
+    Uses the `shellcode/hv` sub-make: it is host-gcc only, so the check needs no
+    PS5 SDK. Before the configuration stamp existed, `make PL5_HV_STOP=1` after a
+    `PL5_HV_STOP=0` build silently reused the objects and produced the same blob.
+    """
+    import hashlib
+
+    name = "make: flag switch rebuilds the blob (no clean)"
+    d = ROOT / "source" / "shellcode" / "hv"
+    hdr = d / "shellcode_hv.h"
+    if not (d / "Makefile").is_file():
+        record("synth", name, False, "SKIP: shellcode/hv not present")
+        return
+    if not (have("make") and have("gcc") and have("ld") and have("objcopy")):
+        record("synth", name, False, "SKIP: make/gcc/ld/objcopy unavailable")
+        return
+
+    def sha() -> str:
+        return hashlib.sha256(hdr.read_bytes()).hexdigest()[:16] if hdr.is_file() else ""
+
+    def make(stop: str) -> int:
+        return run(["make", "-C", str(d), f"PL5_HV_STOP={stop}"])[0]
+
+    run(["make", "-C", str(d), "clean"])
+    (d / ".pl5-config.stamp").unlink(missing_ok=True)
+
+    rc0 = make("0")
+    h0 = sha()
+    rc1 = make("1")            # deliberately no clean in between
+    h1 = sha()
+    rc2 = make("0")            # and back
+    h2 = sha()
+    run(["make", "-C", str(d), "clean"])
+
+    ok = rc0 == rc1 == rc2 == 0 and h0 and h0 != h1 and h2 == h0
+    record("synth", name, ok, f"0:{h0 or 'none'} 1:{h1 or 'none'} back:{h2 or 'none'}")
+
+    # clean-objs must be phony: a stray file of that name would disable it.
+    mk = (ROOT / "Makefile").read_text()
+    phony = next((l for l in mk.splitlines() if l.startswith(".PHONY:")), "")
+    record("synth", "make: clean-objs is declared .PHONY",
+           "clean-objs" in phony.split(), phony.strip())
+
+    # The top-level Makefile must key the objects on the configuration stamp.
+    # (There is more than one `$(OBJS):` rule — the static pattern rule comes
+    # first — so look for any of them carrying the stamp.)
+    record("synth", "make: top-level objects follow the config stamp",
+           "PL5_CONFIG_STAMP" in mk and any(
+               l.startswith("$(OBJS):") and "PL5_CONFIG_STAMP" in l
+               for l in mk.splitlines()),
+           "stamp wired into an OBJS rule")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -258,6 +313,7 @@ def main() -> int:
         synthetic_off_1360_tests(tmp)
         synthetic_dump_input_tests(tmp, python_with_capstone())
         synthetic_takeover_tests()
+        synthetic_make_flag_tests()
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]

@@ -1,4 +1,9 @@
-.PHONY: all clean version offsets
+.PHONY: all clean version offsets clean-objs
+
+# The configuration-stamp rule below defines a target before `all`, so the
+# default goal is stated explicitly instead of being "whichever target came
+# first".
+.DEFAULT_GOAL := all
 
 ifndef PS5_PAYLOAD_SDK
     PS5_PAYLOAD_SDK = /opt/ps5-payload-sdk/
@@ -47,6 +52,21 @@ PL5_1360_TAKEOVER ?= 0
 PL5_TAKEOVER_FW ?= 1320
 
 CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
+
+# Configuration stamp. The flags above are compiler options, not inputs of any
+# rule, so make would happily reuse objects built with different ones. The stamp
+# file stores every flag that reaches the compiler and is rewritten only when
+# one of those values changes: the objects depend on it, so a flag switch
+# rebuilds them (and re-enters the shellcode sub-makes, which stamp themselves)
+# without needing an explicit clean.
+PL5_CONFIG_STAMP := .pl5-config.stamp
+PL5_CONFIG_VALUE := PL5_DIAG=$(PL5_DIAG) PL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) PL5_PROBE=$(PL5_PROBE) PL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) PL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) PL5_HV_STOP=$(PL5_HV_STOP)
+
+.PHONY: FORCE
+FORCE:
+$(PL5_CONFIG_STAMP): FORCE
+	@printf '%s\n' '$(PL5_CONFIG_VALUE)' | cmp -s - $@ \
+		|| printf '%s\n' '$(PL5_CONFIG_VALUE)' > $@
 # pLabs5 toolchain override (see PORTING.md). Pass LLVM_CONFIG in the environment:
 #   export LLVM_CONFIG=/nyaa/coding/public/PS5/dRPC5/pLabs5-SDK/tools/nixos/llvm-config
 LDFLAGS := -lSceSystemService
@@ -59,6 +79,10 @@ SC_BOOT_H := source/shellcode/hv_boot/hv_boot.h
 SC_TAKEOVER_H := source/shellcode/hv_takeover/takeover.h
 
 all: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(BIN)
+
+# Every generated header follows the configuration stamp, so a flag change
+# re-enters the sub-make, whose own stamp then rebuilds the blob.
+$(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H): $(PL5_CONFIG_STAMP)
 
 # Print the manifest version (read from source/manifest/manifest.c).
 version:
@@ -96,7 +120,7 @@ $(OBJS): %.o: %.c
 
 # The userland objects include the generated shellcode headers; make the
 # dependency explicit so `make -j` cannot compile them before the blobs exist.
-$(OBJS): $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H)
+$(OBJS): $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(PL5_CONFIG_STAMP)
 
 $(BIN): $(OBJS)
 	@mkdir -p $(dir $@)
