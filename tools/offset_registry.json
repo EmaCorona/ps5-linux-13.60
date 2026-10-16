@@ -23,7 +23,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "none (escape)",
-      "provenance": "address, not a struct offset: consumed as ktext+offset / get_offset_va() (source/hw/iommu.c:9, source/boot/prepare_resume.c:139). As STRUCT_OFF the checker would have REFUSED the correct value (STRUCT_OFF must be < 0x1000). No candidate identified: the IOMMU driver functions reference several globals but nothing names the softc",
+      "provenance": "address, not a struct offset: consumed as ktext+offset / get_offset_va() (source/hw/iommu.c:9, source/boot/prepare_resume.c:139). As STRUCT_OFF the checker would have REFUSED the correct value (STRUCT_OFF must be < 0x1000). No candidate identified: the IOMMU driver functions reference several globals but nothing names the softc; second pass: the softc field offsets (IOMMU_SC_* 0x40/0x78/0x80/0x60b90) hit dozens of functions (0xca5000-0xcbb000) and their globals do not converge, so no value is claimed",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {
@@ -167,7 +167,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "display bring-up (Linux boot)",
-      "provenance": "NOT derivable from the capture alone: its display strings live outside kernel .text and are not referenced from it, and the 13.20 value 0xC01ED0 is not a function entry in 13.60 (measured: entry=False, body 5cfbccff). Needs a neighbouring-firmware image for byte matching. G2, not the kernel entry",
+      "provenance": "NOT derivable from the capture alone: its display strings live outside kernel .text and are not referenced from it, and the 13.20 value 0xC01ED0 is not a function entry in 13.60 (measured: entry=False, body 5cfbccff). requires a reference kernel image, and that route is CLOSED (measured 2026-10-16): the official PUPs are encrypted throughout (entropy 8.000 bit/byte at 6 sampled offsets) and ps5-pup-decrypt refuses a different version (13.20 on 13.60) and never decrypts system/system_ex/wlan; no public 13.20/7.61 kernel dump exists. Not needed for the kernel entry (G2). See docs/1360-unknown-offsets-hunt.md",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {
@@ -176,7 +176,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "audio (Linux boot)",
-      "provenance": "NOT derivable from the capture alone: same measurement; 13.20 0xA0B3E0 is not an entry in 13.60 (body d031ff31). G2, not the kernel entry",
+      "provenance": "NOT derivable from the capture alone: same measurement; 13.20 0xA0B3E0 is not an entry in 13.60 (body d031ff31). G2, not the kernel entry. requires a reference kernel image, and that route is CLOSED (measured 2026-10-16): the official PUPs are encrypted throughout (entropy 8.000 bit/byte at 6 sampled offsets) and ps5-pup-decrypt refuses a different version (13.20 on 13.60) and never decrypts system/system_ex/wlan; no public 13.20/7.61 kernel dump exists. Not needed for the kernel entry (G2). See docs/1360-unknown-offsets-hunt.md",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {
@@ -185,7 +185,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "audio (Linux boot)",
-      "provenance": "NOT derivable from the capture alone: 13.20 0xA0A9D0 is not an entry in 13.60 (body b7700100). G2, not the kernel entry",
+      "provenance": "NOT derivable from the capture alone: 13.20 0xA0A9D0 is not an entry in 13.60 (body b7700100). G2, not the kernel entry. requires a reference kernel image, and that route is CLOSED (measured 2026-10-16): the official PUPs are encrypted throughout (entropy 8.000 bit/byte at 6 sampled offsets) and ps5-pup-decrypt refuses a different version (13.20 on 13.60) and never decrypts system/system_ex/wlan; no public 13.20/7.61 kernel dump exists. Not needed for the kernel entry (G2). See docs/1360-unknown-offsets-hunt.md",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {
@@ -194,7 +194,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "not derivable from the capture alone: it is a data-region address of a firmware blob, and candidates exist but nothing names it (7.61 used a 0x1655800-relative address). Absence is handled at runtime: hw/firmware.c:97 fails gracefully with a message",
+      "provenance": "not derivable from the capture alone: it is a data-region address of a firmware blob, and candidates exist but nothing names it (7.61 used a 0x1655800-relative address). Absence is handled at runtime: hw/firmware.c:97 fails gracefully with a message; the blob is inside the kernel image but carries no NXP/IW620 marker (all zero occurrences), so identification would be structural only",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {
@@ -203,7 +203,7 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "Wi-Fi firmware blob",
-      "provenance": "same class as PS5_WIFI_FW_OFFSET (a blob byte count: 7.61 497636, 3.00 492304). Not identified in 13.60 and not required for the escape",
+      "provenance": "same class as PS5_WIFI_FW_OFFSET (a blob byte count: 7.61 497636, 3.00 492304). Not identified in 13.60 and not required for the escape; the blob is inside the kernel image but carries no NXP/IW620 marker (all zero occurrences), so identification would be structural only",
       "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
     },
     {

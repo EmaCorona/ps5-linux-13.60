@@ -77,6 +77,51 @@ which exist here.
   was **not** reclassified because the code is not — the difference matters more than a
   tidier count.
 
+
+## Second pass: the reference-image route (2026-10-16, evening)
+
+The one step that could still change the picture for items 5-7 was a neighbouring
+kernel image. Result: **the route is closed, and not for lack of trying.**
+
+1. **Official PUPs cannot be used offline.** The 13.20 recovery PUP was downloaded from
+   the archive and verified (`1,403,945,984 B`, sha256 `c8308c81aae91e83…` = the
+   archive's own value). It carries the `SLB2` container magic and is **encrypted
+   throughout**: entropy **8.000 bit/byte at every sampled offset** (0%, 5%, 25%, 50%,
+   75%, 95%). There is no plain region to extract.
+2. **The console-side decryptor cannot help either.** `ps5-pup-decrypt` works *"by asking
+   nicely ps5 to do it"*, and its README states the constraint outright: it only works on
+   *the same version* or *a bigger version within the same `.XX`* (`5.02` on `5.50`, but
+   **not** `6.00`) — we run 13.60 and need 13.20, so it refuses. The same README lists
+   **"Not Decrypted Files (system, system_ex, wlan)"**: the segments it never decrypts
+   are exactly where the kernel and the Wi-Fi firmware live.
+3. **No public kernel dump exists for 13.20 or 7.61.** Targeted searches (repo names, "ps5
+   13.20 kernel", "ps5 7.61 kernel", "ps5 kernel memory capture") return nothing but the
+   13.60 capture we already hold (`terrafirma2021/ps5-13.60-kernel-dump`, which is where
+   `k1360.bin` comes from).
+
+So items 5-7 stay `UNKNOWN` for a reason that is now measured rather than assumed, and the
+work they block is G2 (display/audio), not the kernel entry.
+
+### Two in-capture routes were tried and did not isolate a value
+
+- **Wi-Fi blob (items 8-9).** `hw/firmware.c` shows the semantic: the blob is *inside the
+  kernel image* (`PS5_WIFI_FW_BOOT_PATH = "lib/nxp/pcieuartiw620_combo_v1.bin"`, read as
+  `ktext + offset`), so it should be findable in the capture directly. Searched for every
+  plausible marker — `pcieuartiw620`, `IW620`, `iw620`, `nxp`, `NXP`, `combo_v1`,
+  `88W9098`, `W9098`, `btfm` — **all zero occurrences**. Firmware blobs carry no such
+  strings, so identification would have to be structural (entropy + size + alignment),
+  which yields candidates, not an identified value.
+- **IOMMU softc (item 3).** `hw/iommu.c` reads it as a *global pointer variable*
+  (`softc = kread64(softc_ptr)`), so the way to find it is the code that stores it. The
+  softc's field offsets are known (`IOMMU_SC_MMIO_VA 0x40`, `CB2 0x78`, `CB3 0x80`,
+  `EB 0x60b90`), and the last is highly distinctive — but scanning the capture for it hits
+  **dozens of functions across 0xca5000-0xcbb000** and their RIP-relative globals
+  (`0x3e11cc4`, `0x3589e80`, `0x3e0d9b8`, …) do not converge on one variable. The pattern
+  is not unique, so no value is claimed.
+
+Both attempts are recorded here instead of being dressed up as progress: a guessed global
+would defeat the whole point of the registry's provenance rule.
+
 ## Where to go next (in order of information gained per unit of risk)
 
 1. **A 13.20 or 7.61 kernel image with provenance.** It turns items 5–7 from
