@@ -23,6 +23,7 @@ The three blockers that currently define the 13.60 work, in one line each:
 | document | what it is | read it when |
 | --- | --- | --- |
 | [`BASELINE_1360.md`](BASELINE_1360.md) | frozen initial state of this branch: revision, toolchain, CI coverage, verifier results **before** any change | you need to know what the starting point was, or reproduce a before/after |
+| [`TOOLCHAIN.md`](TOOLCHAIN.md) | the two build inputs, the shim chain that decides which compiler actually runs, and the pins (SDK, pLabs5-SDK commit + checksum, base image) | you are changing the build, or a build differs between machines |
 | [`1360-port-status.md`](1360-port-status.md) | chronological record of the 13.60 work: what was tried, what the console did, what was concluded | you want the full history, including the dead ends |
 | [`1360-offsets-from-dump.md`](1360-offsets-from-dump.md) | how the 13.60 offsets were derived from a verified kernel capture and validated against the live console | you doubt a value in `off_1360.c` |
 | [`1360-khook-death.md`](1360-khook-death.md) | why the armed khook kills this console: signature, single-variable bisection, mechanism | you are touching the escape or the khook |

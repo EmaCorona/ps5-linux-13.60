@@ -77,6 +77,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: pLabs5/pLabs5-SDK
+          # Pinned: LLVM_CONFIG resolves to whichever LLVM this build then uses.
+          ref: eeae9d047623f71dbaecc7328dd4e32e4d7101d0
           path: pLabs5-SDK
 
       - name: Build pLinux5-NG

@@ -41,6 +41,9 @@ For the currently tested escape path, keep **Supply Power to USB Ports** set to 
 - GNU Make, a host C compiler, and the host GCC used to build freestanding shellcode.
 - Alternatively, Docker Buildx.
 
+The pinned versions, what each input actually controls, and how the compiler is resolved are in
+[docs/TOOLCHAIN.md](docs/TOOLCHAIN.md).
+
 ## Build
 
 Set the paths for the installed SDKs, then build from the repository root:
