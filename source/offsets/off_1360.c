@@ -40,7 +40,7 @@ offset_list off_1360 = {
     /* Loader utils -- VMSPACE_VM_PMAP is stable across 13.xx (Byepervisor
      * hardcodes 0x1D8 for 13.00/13.20/13.60). GVMSPACE not needed here. */
     .IOMMU_SOFTC = 0x3543A70,   /* [CONVERGED] from Sonic ISO's working 13.60 loader; its field mapping validated against 6 known firmwares */
-    .VMSPACE_VM_VMID = 0x1E4,            /* [STATIC]  Byepervisor 13_60.h */
+    .VMSPACE_VM_VMID = 0x1EC,   /* [ALIGNED] VMID is 0x1EC in the working loader's 13.60 AND 12.00 tables; 0x1E4 appears only on 3.00-4.51, so ours was a stale value */
     .VMSPACE_VM_PMAP = 0x1D8,            /* [DISPUTED] the old provenance was WRONG: Byepervisor 13_60.h has no such field.
                                              ps5-payload-dev SDK case 0x13600000 gives VM_PMAP = 0x2E8 and
                                              P_ROOT = 0x1D0 (which matches our 3.00 table). Value kept because the
@@ -63,14 +63,14 @@ offset_list off_1360 = {
      *     contains "hv_iommu_set_guest_buffers completion error:%d" (str
      *     @0x131236e, xref @0x4FB231). The previously recorded 0x4FB13D is
      *     NOT an entry -- it decodes as `lea rax,[rip+...]` mid-function. */
-    .FUN_HV_IOMMU_SET_BUFFERS = 0x4FABD0,   /* [STATIC] strict entry, holds the signature string */
-    .FUN_HV_IOMM_WAIT_COMPLETION = 0x4F9030, /* [STATIC] strict entry, "IOMMU: wait command completion" */
+    .FUN_HV_IOMMU_SET_BUFFERS = 0xC16B00,   /* [ALIGNED] the working loader's HV wrapper (vmmcall #6); our 0x4FABD0 is the IOMMU DRIVER function (strings 'iommu io'/'iommu_pci_attach'), wrong for this field */
+    .FUN_HV_IOMM_WAIT_COMPLETION = 0xC16A40,   /* [ALIGNED] same reason: ours 0x4F9030 is driver-side, theirs is the HV-side wrapper */
     /* [STATIC] smp_rendezvous wrapper (13.20: 0xAF94E0). Needed by the
      * post-resume takeover to drive the multi-core VMMCALL rendezvous. Derived
      * from the 13.60 capture: strict entry, references "smp rendezvous"
      * (docs/1360-offsets-from-dump.md; verify_off_1360_dump.py). Not published
      * in Byepervisor's 13_60.h. */
-    .FUN_SMP_RENDEZVOUS = 0xB04440,
+    .FUN_SMP_RENDEZVOUS = 0xB03BA0,   /* [ALIGNED] from the working loader; our 0xB04440 has 0 callers (it is the function that PRINTS the 'smp rendezvous' string), theirs has 6+ callers */
     /* [UNKNOWN] the no-op setup/teardown barrier is still unidentified; the
      * shellcode can substitute its own no-op, so this may stay unused. */
     .FUN_SMP_NO_RENDEVOUS_BARRIER = 0xB03960,   /* verified: no-op body push rbp;mov rbp,rsp;pop rbp;ret; the stub at 0x261E08 jmps exactly here */
@@ -102,7 +102,7 @@ offset_list off_1360 = {
                                              (2) cross-firmware drift -- 13.20's value 0xC01ED0 plus the locally measured
                                              delta +0xCBD0 (from the verified HV_MP_STARTUP_CALL pair 0xC0A310 -> 0xC16EE0)
                                              gives exactly 0xC0EAA0. */
-    .FUN_MP3_INITIALIZE = 0xA13740,   /* verified: SIG "[MP3] failed to init message thread" -> 1 xref -> fn 0xA13740 (entry, prologue) */
+    .FUN_MP3_INITIALIZE = 0xA14130,   /* [ALIGNED] the working loader's value; our 0xA13740 (2544 B) CALLS this one - container vs sender. Documented as a divergence to settle on hardware */
     .FUN_MP3_INVOKE = 0xA12D30,          /* [CONVERGED] 3-arg API matching mp3_invoke(cmd, req, rsp):
                                              mov r15d,edi (cmd) -> mov [r14],r15d (writes the command id into
                                              the message), copies req (0x1404 B) via 0x2590b0, uses rsp

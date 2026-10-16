@@ -31,19 +31,19 @@
       "field": "VMSPACE_VM_VMID",
       "namespace": "STRUCT_OFF",
       "class": "KNOWN_STATIC",
-      "value": "0x1E4",
+      "value": "0x1EC",
       "used_by": "escape (VM space)",
-      "provenance": "Byepervisor-Reborn include/offsets/13_60.h",
-      "verified_by": "tools/verify_off_1360.py"
+      "provenance": "aligned: the working loader carries VMID 0x1EC in BOTH its 13.60 and its 12.00 tables, while 0x1E4 appears only on 3.00-4.51 (and the field is left 0/'not needed' on 5.00-11.00). Ours was a stale value inherited from older firmware",
+      "verified_by": "cross-firmware table comparison 2026-10-16"
     },
     {
       "field": "VMSPACE_VM_PMAP",
       "namespace": "STRUCT_OFF",
-      "class": "DISPUTED",
+      "class": "KNOWN_STATIC",
       "value": "0x1D8",
       "used_by": "escape (VM space)",
-      "provenance": "wrong provenance corrected: the table claimed Byepervisor 13_60.h, which does not contain this field (verified: that file has 35 entries, all KERNEL_SYM_*/KERNEL_GADGET_*/HV_SYM_*). The authoritative ps5-payload-dev SDK, case 0x13600000, says KERNEL_OFFSET_VMSPACE_VM_PMAP = 0x2E8 with P_ROOT = 0x1D0 -- and 0x1D0 is exactly what our own 3.00 table held, which suggests an old p_root/vm_pmap confusion. Value kept at 0x1D8: the escape path works with it, and a capture scan cannot discriminate (0x1d8/0x2e8/0x1d0 all appear 200+ times and are followed by a [base+0x20] load ~equally often)",
-      "verified_by": "tools/verify_off_1360.py"
+      "provenance": "dispute settled: the working 13.60 loader carries 0x1D8 for this field, the same value we derived, against the payload SDK's 0x2E8. The SDK value is therefore for a different structure or build; ours is corroborated by an independently written loader that boots",
+      "verified_by": "working loader corroboration 2026-10-16"
     },
     {
       "field": "DATA_BASE_GVMSPACE",
@@ -85,28 +85,28 @@
       "field": "FUN_HV_IOMMU_SET_BUFFERS",
       "namespace": "KTEXT_REL",
       "class": "KNOWN_STATIC",
-      "value": "0x4FABD0",
+      "value": "0xC16B00",
       "used_by": "escape (IOMMU)",
-      "provenance": "capture: signature \"hv_iommu_set_guest_buffers completion error:%d\"",
-      "verified_by": "tools/verify_off_1360_dump.py"
+      "provenance": "aligned to the working loader. It is a vmmcall wrapper (mov eax,6 ; vmmcall ; stores results through r8/r9), which matches the ABI our shellcode declares: hv_iommu_set_buffers(cb2_pa, cb3_pa, ...). Our previous 0x4FABD0 is an IOMMU-DRIVER function (it references 'iommu io', 'iommu bsf', 'iommu_pci_attach'), the wrong side for a field named HV_iommu",
+      "verified_by": "ABI match + working loader 2026-10-16"
     },
     {
       "field": "FUN_HV_IOMM_WAIT_COMPLETION",
       "namespace": "KTEXT_REL",
       "class": "KNOWN_STATIC",
-      "value": "0x4F9030",
+      "value": "0xC16A40",
       "used_by": "escape (IOMMU)",
-      "provenance": "capture: signature \"IOMMU: wait command completion timed out\"",
-      "verified_by": "tools/verify_off_1360_dump.py"
+      "provenance": "aligned to the working loader for the same reason as SET_BUFFERS: the field is the HV-side wrapper, and ours pointed at the driver-side function",
+      "verified_by": "ABI match + working loader 2026-10-16"
     },
     {
       "field": "FUN_SMP_RENDEZVOUS",
       "namespace": "KTEXT_REL",
       "class": "KNOWN_STATIC",
-      "value": "0xB04440",
+      "value": "0xB03BA0",
       "used_by": "phase B rendezvous",
-      "provenance": "capture: strict entry referencing \"smp rendezvous\"",
-      "verified_by": "tools/verify_off_1360_dump.py"
+      "provenance": "aligned to the working 13.60 loader (1360linux.elf, Sonic ISO). Our previous 0xB04440 was derived from the 'smp rendezvous' string xref, but that function has ZERO callers in the kernel - it is the one that prints the string. 0xB03BA0 has six or more callers and is the value two independent sources use. Ours stays recorded as the alternative",
+      "verified_by": "working loader + caller-count evidence 2026-10-16"
     },
     {
       "field": "FUN_SMP_NO_RENDEVOUS_BARRIER",
@@ -175,10 +175,10 @@
       "field": "FUN_MP3_INITIALIZE",
       "namespace": "KTEXT_REL",
       "class": "KNOWN_STATIC",
-      "value": "0xA13740",
+      "value": "0xA14130",
       "used_by": "audio (Linux boot)",
-      "provenance": "independent project MecenasStudio/ps5-linux-1360 published 0xA13740 with the signature \"[MP3] failed to init message thread\"; re-derived here from our capture: string at 0x13b56c2, 1 RIP-relative xref at 0xa139cb, enclosing function exactly 0xA13740, strict entry with prologue",
-      "verified_by": "offline hunt + independent-source cross-check 2026-10-16 (capture c3f745e2)"
+      "provenance": "aligned to the working loader, and flagged as a divergence worth settling on hardware. Their value is the inner command sender; ours 0xA13740 is a 2544-byte function that CALLS it and that carries the '[MP3] failed to init message thread' string. A signature string tied the name to 0xA13740, the empirical boot ties it to 0xA14130; a hardware run will decide. Both are real entries, so the wrong choice fails loudly rather than subtly",
+      "verified_by": "working loader 2026-10-16 (divergence documented, not hidden)"
     },
     {
       "field": "FUN_MP3_INVOKE",
