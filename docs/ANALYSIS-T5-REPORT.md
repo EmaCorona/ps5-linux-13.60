@@ -229,6 +229,47 @@ Eseguiti su questo branch, con l'esito:
 `workflow_dispatch` — **non** su questo branch sperimentale. Le stesse tre verifiche sono state quindi
 eseguite qui a mano (ed è ciò che la tabella sopra riporta).
 
+### 5.1 La build (Fase 6)
+
+Toolchain **documentata e pinnata** (`docs/TOOLCHAIN.md`): container `silkeh/clang:21-trixie`, SDK
+ps5-payload **v0.44** e pLabs5-SDK al commit `eeae9d04…`, entrambi con verifica di checksum nella build.
+Nessun SDK è installato sull'host: la build gira in **podman**. Albero pulito, commit del worktree
+`3258296`, `PL5_BUILD_COMMIT=3258296`.
+
+| artefatto | configurazione | SHA-256 | byte |
+| --- | --- | --- | --- |
+| `pl5-t5-report-only-3258296.elf` | `PL5_DIAG=4 PL5_1360_RESUME_REPORT_ONLY=1`, arm/ack/takeover/stage=0 | `70ad3081c5b8c49e67daed98fdf37da8984f35e7b29e6c903dfeac1cea935f29` | 241016 |
+| `pl5-verify-resume-3258296.elf` | `-DPL5_VERIFY_MODE -DPL5_VERIFY_RESUME=1` | `2ae25e329c68412bb0bc808babe7f03930a17877644701ec7ecd4ef6c8037e1c` | 241184 |
+
+Conservati **fuori dal repo** in `~/src/ps5-dumps/pl5-artifacts/` con `SHA256SUMS-t5-3258296.txt` e
+`CONFIG-t5-3258296.txt` (comando + flag). Gli `.elf` non sono versionati nel repository, quindi un file
+locale non prova da solo la sua provenienza: l'hash qui sopra è quello dell'artefatto **costruito a partire
+da questo commit**.
+
+**Sulla riproducibilità** — misurata, non assunta: due build dello *stesso* target dallo *stesso* albero
+non sono identiche byte per byte. Differiscono in **16 byte contigui** che sono la nota
+`NT_GNU_BUILD_ID` (verificato: `namesz=4 descsz=16 type=3 name='GNU'` a offset 154928); azzerando quei 16
+byte nei due file, gli SHA-256 coincidono (`39927f9e…`), cioè il **contenuto del payload è riproducibile**
+e varia solo la build-id. Conseguenza pratica: l'hash di un `.elf` identifica *quell'artefatto*, non la
+configurazione in astratto — per questo gli hash sono registrati insieme al comando che li ha prodotti.
+
+### 5.2 Le guardie, provate (non solo lette)
+
+Costruite nel container, ognuna una prova reale:
+
+| prova | esito atteso | esito osservato |
+| --- | --- | --- |
+| `RESUME_REPORT_ONLY=1` + `ARM_HOOK=1` + `ACK=1` | fallisce | `#error` (riga 167) — il report-only non accetta l'armo |
+| `RESUME_REPORT_ONLY=1` + `TAKEOVER=1` | fallisce | `#error` — non accetta il takeover |
+| `RESUME_REPORT_ONLY=1` + `STAGE_PRE_SLEEP=1` | fallisce | `#error` — non accetta lo staging pre-sonno |
+| `make t5-report-only` senza il flag | fallisce | il target rifiuta (`exit 2`) con il comando corretto da usare |
+| `ARM_HOOK=1` senza `ACK` (guardia **esistente**) | fallisce | `#error` (riga 132) |
+| build ordinaria di default | riesce | `make -j4` ok; `make version` → `0.1.0` |
+| warning introdotti dalle modifiche | nessuno | nessun warning su `main.c`, `utils.c`, `hv_defeat_1360.c`, `pl5-verify-offsets.c` attribuibile alle modifiche; quelli presenti (`install_resume_hook`/`khook_selftest` non usati con `ARM_HOOK=0`, `kh_diag_skip_mask` auto-assegnato) esistono **anche** nella build di default |
+
+Una nota di metodo su quest'ultima riga: i conteggi totali di warning variano fra un run e l'altro perché
+includono la ricostruzione dei blob shellcode in gcc. La riga sopra è ristretta ai file modificati.
+
 ---
 
 ## 6. Specifica di T5
