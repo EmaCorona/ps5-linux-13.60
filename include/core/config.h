@@ -25,6 +25,12 @@
 #define kernel_cave_linux_info kernel_cave_files
 #define kernel_cave_bzImage kernel_cave_linux_info + PAGE_SIZE
 
+/* Upper bound of the cave staging area for bzImage + initrd. The kernel image
+ * itself starts at physical 0x1B600000 (see KERNEL_ADDRESS_TEXT_BASE in the
+ * offsets headers), so staged files must stay below it. kernel_cave is the
+ * direct-map base, so this is the VA of that physical address. */
+#define kernel_cave_files_end (kernel_cave + 0x1B600000ULL)
+
 // #define kernel_cave_initrd   // Allocated dynamically after bzImage
 
 // Linux boot config

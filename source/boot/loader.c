@@ -1,4 +1,5 @@
 #include "loader.h"
+#include "boot_data.h"
 #include "config.h"
 #include "firmware.h"
 #include "linux.h"
@@ -119,11 +120,12 @@ int fetch_linux(struct linux_info *info) {
   char bzimage_path[256];
   char initrd_path[256];
 
-  size_t bzimage_size = find_and_get_size_of_file("bzImage", bzimage_path);
-  if (bzimage_size < 0) {
+  long bzimage_size_l = find_and_get_size_of_file("bzImage", bzimage_path);
+  if (bzimage_size_l < 0) {
     notify("File bzImage not found at default paths - Aborting\n");
     return -1;
   }
+  size_t bzimage_size = (size_t)bzimage_size_l;
 
   void *bzimage =
       mmap(NULL, ALIGN_UP(bzimage_size, PAGE_SIZE), PROT_READ | PROT_WRITE,
@@ -140,11 +142,12 @@ int fetch_linux(struct linux_info *info) {
     return -1;
   }
 
-  size_t initrd_size = find_and_get_size_of_file("initrd.img", initrd_path);
-  if (bzimage_size < 0) {
-    notify("File bzImage not found at default paths - Aborting\n");
+  long initrd_size_l = find_and_get_size_of_file("initrd.img", initrd_path);
+  if (initrd_size_l < 0) {
+    notify("File initrd.img not found at default paths - Aborting\n");
     return -1;
   }
+  size_t initrd_size = (size_t)initrd_size_l;
 
   void *initrd =
       mmap(NULL, ALIGN_UP(initrd_size, PAGE_SIZE), PROT_READ | PROT_WRITE,
@@ -165,6 +168,7 @@ int fetch_linux(struct linux_info *info) {
     notify(
         "Something went wrong while dumping device firmwares - Continuing\n");
   }
+
 
   size_t vram_size;
   char buf_vram[16] = {};
@@ -201,6 +205,33 @@ int fetch_linux(struct linux_info *info) {
   info->vram_size = vram_size;
   info->kit_type = (int)get_kit_type();
   strcpy(info->cmdline, cmdline);
+
+  /* Validate the hand-off arithmetic before anything is staged: sizes, the
+   * bzImage setup-header magic/protocol, the command line length and the cave
+   * layout. A refusal here is diagnosable; a clamped size staged into the kernel
+   * cave is not. See include/boot/boot_data.h. */
+  {
+    const uint8_t *bz = (const uint8_t *)bzimage;
+    struct pl5_boot_facts f = {0};
+    f.bzimage_size = bzimage_size;
+    f.initrd_size = initrd_size;
+    f.cmdline_len = strlen(cmdline);
+    f.hdr_magic = (uint32_t)bz[0x202] | ((uint32_t)bz[0x203] << 8) |
+                  ((uint32_t)bz[0x204] << 16) | ((uint32_t)bz[0x205] << 24);
+    f.hdr_version = (uint16_t)(bz[0x206] | (bz[0x207] << 8));
+    f.boot_flag = (uint16_t)(bz[0x1FE] | (bz[0x1FF] << 8));
+    f.cave_start = info->bzimage;
+    f.cave_end = kernel_cave_files_end;
+    f.initrd_offset = info->initrd - info->bzimage;
+    f.page_size = PAGE_SIZE;
+    enum pl5_boot_check bc = pl5_boot_check_data(&f);
+    if (bc != PL5_BOOT_OK) {
+      notify("- Aborting: %s\n", pl5_boot_check_text(bc));
+      return -1;
+    }
+    notify("[+] boot hand-off validated: bzImage=%zu initrd=%zu\n",
+           bzimage_size, initrd_size);
+  }
 
   /* Keep the raw mappings reachable for the 13.20 headless boot stager. */
   linux_bzimage_user = bzimage;
