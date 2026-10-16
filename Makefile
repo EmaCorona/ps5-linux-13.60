@@ -1,4 +1,4 @@
-.PHONY: all clean version offsets verify-offsets verify-offsets-text disarm clean-objs
+.PHONY: all clean version offsets verify-offsets verify-offsets-text disarm gpu-textverify clean-objs
 
 # The configuration-stamp rule below defines a target before `all`, so the
 # default goal is stated explicitly instead of being "whichever target came
@@ -126,6 +126,14 @@ verify-offsets-text: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H
 	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE -DPL5_VERIFY_TEXT=1 $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \
 		-o bin/pl5-verify-offsets-text.elf
 	@echo "built bin/pl5-verify-offsets-text.elf"
+
+# WS2b: .text attraverso la GPU (la via documentata). Esclude source/main.c
+# perche' il tool ha un main() proprio, come i probe storici.
+gpu-textverify: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) $(filter-out source/main.c,$(SRC)) tools/pl5-gpu-textverify.c $(LDFLAGS) \
+		-o bin/pl5-gpu-textverify.elf
+	@echo "built bin/pl5-gpu-textverify.elf"
 
 verify-offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
 	@mkdir -p bin
