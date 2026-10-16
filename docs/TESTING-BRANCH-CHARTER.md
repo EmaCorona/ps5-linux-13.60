@@ -207,3 +207,14 @@ Confronto con il baseline `feature/13.60-support` (`3e35bd0`) su metriche oggett
 | run di staging senza perdita di servizi | 0 su 1 tentativo pieno | ≥3 consecutivi |
 | disarmo da caldo | assente | presente e verificato |
 | boot Linux 13.60 | non raggiunto | raggiunto, con rollback provato |
+
+---
+
+## Appendice — Diario delle esecuzioni su questo branch
+
+| data | WS | esito | prova |
+| --- | --- | --- | --- |
+| 2026-10-16 | WS1 | chiusa l'ultima DISPUTED (`G_VBIOS`) | registry 0 DISPUTED, checker 0 failed / 0 warning |
+| 2026-10-16 | WS2 | **verifica runtime riuscita** | `pass=17 fail=0`: 13/13 tabella; IDT[0] gate valido; IOMMU_SOFTC puntatore canonico; blob WiFi header `01 00 00 00` + size 500296 |
+| 2026-10-16 | WS2b | **metodo non valido, valori non smentiti** | i sei read via direct map restituiscono byte con la forma di una page-table entry (`07 00 00`) e identici fra indirizzi diversi: e' la finestra di lettura a essere sbagliata, non gli indirizzi. La traduzione VA->PA e' corretta (i delta dei PA seguono i delta degli offset). Via documentata per `.text`: percorso GPU (`pl5-gpu-read`). Il probe ora riporta INCONCLUSIVO invece di FAIL |
+| 2026-10-16 | WS3 | **disarmo da caldo funzionante** | `restore: pde=3264 pte=3264 | ktext XOTEXT pte 0->1 | marker 0 -> 0`, read-back `xotext=1 rw=0`: il kernel era ancora escaped dal run diag16 ed e' stato ripristinato senza riavvio. Console sana |

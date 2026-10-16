@@ -41,6 +41,12 @@ int main(void) {
     return -1;
   }
 
+#ifdef PL5_DISARM_MODE
+  /* WS3: ripristina .text (XOTEXT su, RW giu') e azzera il marker ARMED.
+   * Nessun armo, nessuno standby: consegna un kernel pulito senza riavviare. */
+  return hv_defeat_1360_restore();
+#endif
+
 #ifdef PL5_VERIFY_MODE
   /* WS2: diagnostica di sola verifica. Gira subito dopo setup_env() (che ha gia'
    * popolato env_offset) e esce: nessun fetch dell'immagine, nessun escape,

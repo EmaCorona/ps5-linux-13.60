@@ -344,6 +344,65 @@ static void escape_kernel_text(uint64_t kernel_pmap) {
   }
 }
 
+/* Inverse of escape_kernel_text(): put .text back to execute-only (XOTEXT set,
+ * RW clear) and drop the ARMED marker, so an escaped kernel can be handed back
+ * without a reboot. Idempotent: on an already-restored kernel it finds the bits
+ * already correct and only reports. */
+int hv_defeat_1360_restore(void) {
+  uint64_t kernel_pmap, cave_addr, entry, entry_addr;
+  uint64_t va = ktext;
+  int pde_before = -1, pte_before = -1, pde_after = -1, pte_after = -1;
+  unsigned long pde_n = 0, pte_n = 0;
+
+  kernel_set_ucred_authid(getpid(), 0x4800000000000007);
+  kernel_pmap = kdlsym(KERNEL_SYM_PMAP_STORE);
+  cave_addr = kdlsym(KERNEL_SYM_DATA_CAVE);
+  if (kernel_pmap == 0 || cave_addr == 0) {
+    notify("restore: cannot resolve pmap_store/data_cave\n");
+    return -1;
+  }
+
+  /* sample the first .text entry before touching it, for the report */
+  entry_addr = find_pte(kernel_pmap, va, &entry);
+  if (entry_addr != 0xFFFFFFFFFFFFFFFFull) pte_before = (int)PDE_FIELD(entry, XOTEXT);
+
+  for (uint64_t addr = ktext; addr < kdata; addr += 0x1000) {
+    entry_addr = find_pde(kernel_pmap, addr, &entry);
+    if (entry_addr != 0xFFFFFFFFFFFFFFFFull) {
+      SET_PDE_BIT(entry, XOTEXT);
+      CLEAR_PDE_BIT(entry, RW);
+      kwrite64(entry_addr, entry);
+      pde_n++;
+    }
+    entry_addr = find_pte(kernel_pmap, addr, &entry);
+    if (entry_addr != 0xFFFFFFFFFFFFFFFFull) {
+      SET_PDE_BIT(entry, XOTEXT);
+      CLEAR_PDE_BIT(entry, RW);
+      kwrite64(entry_addr, entry);
+      pte_n++;
+    }
+  }
+
+  entry_addr = find_pte(kernel_pmap, va, &entry);
+  if (entry_addr != 0xFFFFFFFFFFFFFFFFull) pte_after = (int)PDE_FIELD(entry, XOTEXT);
+  entry_addr = find_pde(kernel_pmap, va, &entry);
+  if (entry_addr != 0xFFFFFFFFFFFFFFFFull) pde_after = (int)PDE_FIELD(entry, XOTEXT);
+
+  {
+    uint64_t marker = kread64(cave_addr + CAVE_STATE_OFF);
+    kwrite64(cave_addr + CAVE_STATE_OFF, 0);
+    notify("restore: pde=%lu pte=%lu | ktext XOTEXT pte %d->%d pde %d->%d | marker %#lx -> 0\n",
+           pde_n, pte_n, pte_before, pte_after, pde_before, pde_after,
+           (unsigned long)marker);
+  }
+  /* read back after a settle, so the reported value is what the CPU will see */
+  entry_addr = find_pte(kernel_pmap, va, &entry);
+  if (entry_addr != 0xFFFFFFFFFFFFFFFFull)
+    notify("restore: read-back ktext pte=%#lx xotext=%lu rw=%lu\n", (unsigned long)entry,
+           (unsigned long)PDE_FIELD(entry, XOTEXT), (unsigned long)PDE_FIELD(entry, RW));
+  return 0;
+}
+
 /* Make STARTUP_MP_PAYLOAD_PAGE executable in the guest page tables so the HV can
  * call into it after resume. */
 static void map_payload_executable(uint64_t kernel_pmap) {

@@ -1,4 +1,4 @@
-.PHONY: all clean version offsets verify-offsets clean-objs
+.PHONY: all clean version offsets verify-offsets verify-offsets-text disarm clean-objs
 
 # The configuration-stamp rule below defines a target before `all`, so the
 # default goal is stated explicitly instead of being "whichever target came
@@ -113,6 +113,20 @@ offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEO
 # -DPL5_VERIFY_MODE esce subito dopo setup_env(): nessun escape, nessun armo,
 # nessuno standby. Serve a confrontare i valori risolti con la tabella in uso e
 # con il kernel vivo, senza toccare nulla.
+# WS3: payload di ripristino. -DPL5_DISARM_MODE esce subito dopo setup_env() e
+# chiama hv_defeat_1360_restore(): XOTEXT su .text, RW giu', marker ARMED a 0.
+disarm: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) -DPL5_DISARM_MODE $(SRC) $(LDFLAGS) -o bin/pl5-disarm.elf
+	@echo "built bin/pl5-disarm.elf"
+
+# WS2b: come verify-offsets ma legge anche i sei valori in .text via direct map.
+verify-offsets-text: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE -DPL5_VERIFY_TEXT=1 $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \
+		-o bin/pl5-verify-offsets-text.elf
+	@echo "built bin/pl5-verify-offsets-text.elf"
+
 verify-offsets: $(SC_0607_H) $(SC_HV_H) $(SC_K_H) $(SC_BREAK_H) $(SC_BOOT_H) $(SC_TAKEOVER_H) $(SC_TRAMPOLINE_H)
 	@mkdir -p bin
 	$(CC) $(CFLAGS) -DPL5_VERIFY_MODE $(SRC) tools/pl5-verify-offsets.c $(LDFLAGS) \

@@ -28,3 +28,6 @@ int hv_defeat_1360_post_resume(void);
 int hv_defeat_1360_arm(void);
 
 #endif
+
+/* Inverse of the escape: restore .text XOTEXT/RW and drop the ARMED marker. */
+int hv_defeat_1360_restore(void);

@@ -114,6 +114,43 @@ int pl5_verify_offsets(void) {
          env_offset.PS5_WIFI_FW_SIZE < 700000ULL);
   }
 
+#ifdef PL5_VERIFY_TEXT
+  /* WS2b: .text letto attraverso il *direct map* (vtophys + dmap), lo stesso
+   * metodo del dumper del repo. Non si legge il VA del kernel, percorso
+   * documentato come pericoloso. Atteso il prologo 55 48 89 (o un thunk e9). */
+  notify("verify: -- 3a/3 .text via direct map (prologo atteso 55 48 89) --\n");
+  {
+    struct tcheck { const char *name; uint64_t off; } t[] = {
+      {"FUN_MP3_INITIALIZE",           0xA14130ULL},
+      {"FUN_MP3_INVOKE",               0xA12D30ULL},
+      {"FUN_SMP_RENDEZVOUS",           0xB03BA0ULL},
+      {"FUN_SMP_NO_RENDEVOUS_BARRIER", 0xB03960ULL},
+      {"FUN_TRANSMITTER_CONTROL",      0xC0EAA0ULL},
+      {"KERNEL_CFI_CHECK",             0x44F8C0ULL},
+    };
+    for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++) {
+      uint64_t va = ktext + t[i].off;
+      uint64_t pa = vtophys(va);
+      uint32_t w = pa ? kread32(pa_to_dmap(pa)) : 0;
+      int prologue = ((w & 0xFFFFFFu) == 0x894855u);
+      int thunk = ((w & 0xFFu) == 0xE9u);
+      snprintf(d, sizeof d, "bytes=%02x %02x %02x pa=%#lx", w & 0xFF,
+               (w >> 8) & 0xFF, (w >> 16) & 0xFF, pa);
+      if (prologue || thunk) {
+        live(t[i].name, d, 1);
+      } else {
+        /* Il metodo direct-map non e' affidabile in questo contesto (i byte
+         * letti hanno la forma di una entry di page table, non di codice):
+         * lo si dichiara INCONCLUSIVO invece di spacciarlo per un FAIL, cosi'
+         * non si accusa un valore che non e' stato realmente letto. La via
+         * documentata per leggere .text e' il percorso GPU (pl5-gpu-read). */
+        notify("verify: live  %-26s INCONCLUSIVO (metodo direct-map da rivedere)   %s\n",
+               t[i].name, d);
+      }
+    }
+  }
+#endif
+
   notify("verify: -- 3/3 valori in .text: STAMPATI, non letti (lettura CPU pericolosa) --\n");
   notify("verify: .text FUN_MP3_INITIALIZE      = %#lx\n", (uint64_t)env_offset.FUN_MP3_INITIALIZE);
   notify("verify: .text FUN_MP3_INVOKE          = %#lx\n", (uint64_t)env_offset.FUN_MP3_INVOKE);
