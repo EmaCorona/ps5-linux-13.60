@@ -42,7 +42,7 @@ offset_list off_1360 = {
     .IOMMU_SOFTC = 0,                    /* [UNKNOWN] not covered by the dump */
     .VMSPACE_VM_VMID = 0x1E4,            /* [STATIC]  Byepervisor 13_60.h */
     .VMSPACE_VM_PMAP = 0x1D8,            /* [STATIC]  Byepervisor 13_60.h; stable across 13.xx */
-    .DATA_BASE_GVMSPACE = 0,             /* [UNKNOWN] not covered by the dump */
+    .DATA_BASE_GVMSPACE = 0x3BAA570,   /* corroborated: independent 13.60 measurement anchored on the IDT (idt-0x9D90, gap stable on 11.60/12.70/13.60); our IDT at the same anchor re-verified 256/256 gates */
     /* Kernel symbols (Byepervisor 13_60.h) */
     .HOOK_ACPI_WAKEUP_MACHDEP = 0x3913B0, /* [STATIC] Byepervisor 13_60.h */
     /* [N/A-1360] No 13.60 code cave is evidenced. This field previously carried
@@ -70,8 +70,7 @@ offset_list off_1360 = {
     .FUN_SMP_RENDEZVOUS = 0xB04440,
     /* [UNKNOWN] the no-op setup/teardown barrier is still unidentified; the
      * shellcode can substitute its own no-op, so this may stay unused. */
-    .FUN_SMP_NO_RENDEVOUS_BARRIER = 0,
-    /* [N/A-1360] The Byepervisor vector runs from startup_mp, not a fixed VMEXIT cave */
+    .FUN_SMP_NO_RENDEVOUS_BARRIER = 0xB03960,   /* verified: no-op body push rbp;mov rbp,rsp;pop rbp;ret; the stub at 0x261E08 jmps exactly here */
     .HV_CODE_CAVE_PA = 0,
     .HV_HANDLE_VMEXIT_PA = 0,
     .KERNEL_UART_OVERRIDE = 0,           /* [UNKNOWN] UART override not yet located */
@@ -90,7 +89,7 @@ offset_list off_1360 = {
      * is withdrawn (reconcile in Task 11). */
     .G_VBIOS = 0x3DDB9F0,
     .FUN_TRANSMITTER_CONTROL = 0,        /* [UNKNOWN] display bring-up; needed for the Linux boot path, not the escape */
-    .FUN_MP3_INITIALIZE = 0,             /* [UNKNOWN] audio; needed for the Linux boot path, not the escape */
+    .FUN_MP3_INITIALIZE = 0xA13740,   /* verified: SIG "[MP3] failed to init message thread" -> 1 xref -> fn 0xA13740 (entry, prologue) */
     .FUN_MP3_INVOKE = 0,                 /* [UNKNOWN] audio; needed for the Linux boot path, not the escape */
     /* [UNKNOWN] WiFi firmware blob not yet located */
     .PS5_WIFI_FW_OFFSET = 0,

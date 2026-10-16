@@ -46,12 +46,12 @@
     },
     {
       "field": "DATA_BASE_GVMSPACE",
-      "namespace": "STRUCT_OFF",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "namespace": "KDATA_REL",
+      "class": "KNOWN_STATIC",
+      "value": "0x3BAA570",
       "used_by": "none (escape)",
-      "provenance": "namespace left STRUCT_OFF on purpose until the consumer's contract is known: source/hw/gpu.c:295 stores env_offset.DATA_BASE_GVMSPACE raw into the ioctl struct WITHOUT adding ktext, while the 3.00 table held 0x06423F80 (an offset). Either it is already an address or gpu.c misses a ktext+; the capture does not settle it",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "corroborated, two sources: (1) HV-Bypass-13.60 GVMSPACE_DRIFT_1360.md measured it in a live 16 MB .data dump as 0x2EEA570 kdata-relative (= 0x3BAA570 ktext-relative) anchored on the IDT with the gap 0x9D90 stable across 11.60/12.70/13.60; (2) our capture: the IDT at the same anchor (0x3BB4300) re-verified 256/256 gates with selector 0x20, and 0x3BB4300-0x3BAA570 = 0x9D90. Namespace: KDATA_REL, which is what this registry means for an address beyond the text image (it was STRUCT_OFF, a small struct offset, so the checker would have refused any real value)",
+      "verified_by": "offline hunt + independent-source cross-check 2026-10-16 (capture c3f745e2)"
     },
     {
       "field": "HOOK_ACPI_WAKEUP_MACHDEP",
@@ -110,11 +110,11 @@
     {
       "field": "FUN_SMP_NO_RENDEVOUS_BARRIER",
       "namespace": "KTEXT_REL",
-      "class": "NOT_REQUIRED_FOR_1360_PATH",
-      "value": "0x0",
+      "class": "KNOWN_STATIC",
+      "value": "0xB03960",
       "used_by": "optional (shellcode can supply a no-op)",
-      "provenance": "not required in practice: the takeover blob supplies its own no-op setup/teardown. The confirmed bare ret is GAD_RET_TRAMP 0x2912A2 (upstream 13_60.h: KERNEL_GADGET_RET_TRAMP=0x2912A2 // ret; our capture byte there is c3). The kernel's own barrier is NOT identified and cannot be derived from call sites: the capture has 0 direct calls and 0 address-taken references to FUN_SMP_RENDEZVOUS 0xB04440 (measured)",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "no-op function identified: body is push rbp; mov rbp,rsp; pop rbp; ret. The alias sonic.md reports (ktext+0x261e08) is a stub whose jmp rel32 lands exactly on 0xB03960 -- cross-checked by decoding the stub. Supersedes the earlier 'not required, use GAD_RET_TRAMP' disposition: the kernel's own barrier is now identified",
+      "verified_by": "offline hunt + independent-source cross-check 2026-10-16 (capture c3f745e2)"
     },
     {
       "field": "HV_CODE_CAVE_PA",
@@ -173,11 +173,11 @@
     {
       "field": "FUN_MP3_INITIALIZE",
       "namespace": "KTEXT_REL",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "class": "KNOWN_STATIC",
+      "value": "0xA13740",
       "used_by": "audio (Linux boot)",
-      "provenance": "NOT derivable from the capture alone: same measurement; 13.20 0xA0B3E0 is not an entry in 13.60 (body d031ff31). G2, not the kernel entry. requires a reference kernel image, and that route is CLOSED (measured 2026-10-16): the official PUPs are encrypted throughout (entropy 8.000 bit/byte at 6 sampled offsets) and ps5-pup-decrypt refuses a different version (13.20 on 13.60) and never decrypts system/system_ex/wlan; no public 13.20/7.61 kernel dump exists. Not needed for the kernel entry (G2). See docs/1360-unknown-offsets-hunt.md",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "independent project MecenasStudio/ps5-linux-1360 published 0xA13740 with the signature \"[MP3] failed to init message thread\"; re-derived here from our capture: string at 0x13b56c2, 1 RIP-relative xref at 0xa139cb, enclosing function exactly 0xA13740, strict entry with prologue",
+      "verified_by": "offline hunt + independent-source cross-check 2026-10-16 (capture c3f745e2)"
     },
     {
       "field": "FUN_MP3_INVOKE",
