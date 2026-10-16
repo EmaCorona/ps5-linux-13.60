@@ -73,6 +73,18 @@ Save `IDT[1]` and `TSS.IST[ist]`. Write a per-core cookie into the scratch page
 the intended instruction only. Then arm.
 
 **Stage 1 — gate trampoline (first thing the CPU runs on #DB).**
+The IDT gate must point at **our trampoline**, not at the pivot gadget. That single
+choice is what makes forwarding safe, and it is why this section changed after review:
+
+- the CPU pushes the #DB frame (`SS, RSP, RFLAGS, CS, RIP` — vector 1 has **no error
+  code**) and enters the trampoline with `RSP` already at the frame base, i.e.
+  `IST_value - 0x28`;
+- **ours** → the trampoline skips the frame itself (`add rsp, 0x28`) and returns into
+  the staged chain — exactly what the pivot gadget does, which is why the pivot is a
+  *helper* for the chain rather than the gate's entry point;
+- **foreign** → `jmp <saved_gate_handler>` with `RSP` untouched. The original handler
+  sees precisely the frame the CPU built, as if the hook had never existed.
+
 It must decide before it touches the frame:
 
 | test | source of truth | on failure |
@@ -80,12 +92,19 @@ It must decide before it touches the frame:
 | the gate is the one we wrote | re-read `IDT[1]`, compare against our encoding | forward + restore |
 | our core and our cookie | scratch page, per-core, written immediately before arming | forward |
 | the trap is the expected one | `DR6.BS` set, and the interrupted RIP is the recorded `expected_rip` | forward |
-| the frame is where we expect it | the IST frame's CS/RIP match the armed context | forward |
+| the frame is where we expect it | the frame is at `IST - 0x28` and its CS/RIP match the armed context | forward |
 | a previous trap did not already run | the cookie's `seq` and the `oneshot` disarm flag | forward + restore |
 
-**Forwarding = `add rsp, 0x28+8; jmp <saved_gate_handler>`.** The gate's pivot gadget consumed
-`0x28` and `pop rbp` consumed another 8, so adding `0x30` puts the stack back to the layout the
-original handler expects, and the original handler runs exactly as if we had never been installed.
+> **Correction (review).** An earlier revision of this document said the pivot was
+> `add rsp, 0x28; pop rbp; ret` and derived `add rsp, 0x30; jmp` from it. The field
+> is *named* `GAD_ADD_RSP_28_POP_RBP_RET`, but the bytes verified from the capture at
+> that address are `48 83 c4 28 f3 c3` = `add rsp, 0x28; rep ret`: **there is no
+> `pop rbp`**. The frame is five qwords and the pivot consumes exactly those five.
+> With the trampoline as the gate entry, forwarding needs **no** stack arithmetic at
+> all; the rewind value `kh_forward_rsp_after_pivot()` exists only for the arrangement
+> this design rejects. The layout, the offsets and the pivot bytes now live in one
+> header, [`../include/byepervisor/khook_frame.h`](../include/byepervisor/khook_frame.h),
+> where `kh_frame_contract_ok()` and host tests keep them consistent.
 
 **Stage 2 — takeover chain (only after Stage 1 says yes).** Unchanged from today: the dispatcher
 chain, the handler chain, `emit_resume_tail()`, `oneshot` → `DR7 = 0`.
@@ -99,6 +118,7 @@ the ROP chain.
 | option | why not (yet) |
 | --- | --- |
 | **Leave the global gate and add a longer timeout** | the failure is a race, not a duration; a longer timeout widens the exposure |
+| **Keep the pivot as the gate entry and check ownership later in the chain** | the pivot has already advanced past the frame and consumed a return slot, so forwarding needs a hand-derived rewind (`kh_forward_rsp_after_pivot()`) that is easy to get wrong and cannot be verified without a console. Pointing the gate at the trampoline makes forwarding frame-neutral |
 | **Arm the IST only, leave `IDT[1]` alone** | the CPU enters the original handler, not our chain; nothing is gained |
 | **Hook a kernel function instead of the exception gate** (the 13.20 shape, `khook` on `KERNEL_SYM_HV_MP_STARTUP_CALL`) | this is the direction most likely to be safe and is what the 13.20 path does; on 13.60 the hook target's role and the resume contract still have to be established (Task 15). Worth prototyping behind a build flag with Stage 1 as the fallback. |
 | **Per-task `DR` breakpoints only (no IDT change)** | `DR7` is per-CPU, not per-thread, when set from the kernel; the same misrouting applies to `#DB` handling |
@@ -118,6 +138,10 @@ the ROP chain.
 
 ## 7. Static checks required before the next console session
 
+0. **The pivot/frame contract is asserted, not described**: `kh_frame_contract_ok()` and the
+   frame-offset tests live in the host suite
+   ([`../include/byepervisor/khook_frame.h`](../include/byepervisor/khook_frame.h)), and the pivot's
+   bytes are pinned against the capture's verified sequence.
 1. The ownership test is exercised by host unit tests with synthetic frames: ours, foreign,
    wrong core, stale cookie, gate changed underneath us, second trap after disarm.
 2. The forward path is verified to leave the frame exactly as the original handler expects

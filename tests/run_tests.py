@@ -609,6 +609,73 @@ def synthetic_boot_data_tests(tmp: Path) -> None:
            "size checks use long, validation runs before staging")
 
 
+def synthetic_frame_contract_tests(tmp: Path) -> None:
+    """The #DB frame layout and the pivot contract, run on the host.
+
+    Guards the discrepancy found in review: the pivot field is named
+    GAD_ADD_RSP_28_POP_RBP_RET but the verified bytes are 'add rsp,0x28; rep ret'.
+    """
+    if not have("gcc"):
+        record("synth", "frame: #DB layout and pivot contract", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "frame_probe.c"
+    prog.write_text(
+        '#include "byepervisor/khook_frame.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(c, l) do { if (!(c)) { printf("BAD %s\\n", l); bad++; } } while (0)\n'
+        'int main(void) {\n'
+        '  unsigned char fr[0x28];\n'
+        '  for (int i = 0; i < 0x28; i++) fr[i] = 0;\n'
+        '  uint64_t vals[5] = {0xAABBCCDDEEFF0011ULL, 0x33ULL, 0x202ULL, 0x7FF000ULL, 0x2BULL};\n'
+        '  for (int i = 0; i < 5; i++)\n'
+        '    for (int b = 0; b < 8; b++) fr[i*8+b] = (unsigned char)(vals[i] >> (8*b));\n'
+        '  struct kh_frame f;\n'
+        '  kh_frame_parse(fr, &f);\n'
+        '  EXP(f.rip == vals[0], "RIP at +0");\n'
+        '  EXP(f.cs == vals[1], "CS at +8");\n'
+        '  EXP(f.rflags == vals[2], "RFLAGS at +0x10");\n'
+        '  EXP(f.rsp == vals[3], "RSP at +0x18");\n'
+        '  EXP(f.ss == vals[4], "SS at +0x20");\n'
+        '  EXP(kh_frame_contract_ok() == 1, "constants agree");\n'
+        '  EXP(kh_frame_base_for_ist(0x1000) == 0x1000 - 0x28, "frame base = IST - 0x28");\n'
+        '  EXP(kh_forward_rsp_direct(0x1000) == 0x1000, "direct forward leaves RSP");\n'
+        '  EXP(kh_forward_rsp_after_pivot(0x1028) == 0x1028 - 0x30, "post-pivot rewind is 0x30");\n'
+        '  EXP((KH_RFLAG_TF | KH_RFLAG_RF) == 0x00010100ULL, "TF/RF bits");\n'
+        '  EXP(kh_pivot_is_pure_skip(KH_PIVOT_BYTES, 6) == 1, "pivot bytes accepted");\n'
+        '  unsigned char mut[6];\n'
+        '  for (int i = 0; i < 6; i++) mut[i] = KH_PIVOT_BYTES[i];\n'
+        '  mut[3] = 0x30;\n'
+        '  EXP(kh_pivot_is_pure_skip(mut, 6) == 0, "mutated pivot rejected");\n'
+        '  EXP(kh_pivot_is_pure_skip(KH_PIVOT_BYTES, 5) == 0, "wrong length rejected");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "frame_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "frame: #DB layout and pivot contract", False,
+               f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "frame: #DB layout and pivot contract", rc == 0 and not bad,
+           "; ".join(bad) if bad else "13 assertions")
+
+    # The header's pivot bytes, the table's comment and the dump verifier's
+    # expectation must be the same statement, in the same order.
+    hdr = (ROOT / "include/byepervisor/khook_frame.h").read_text()
+    table = (ROOT / "source/offsets/off_1360.c").read_text()
+    import re as _re
+    m = _re.search(r"GAD_ADD_RSP_28_POP_RBP_RET\s*=\s*0x[0-9A-Fa-f]+,\s*/\*[^*]*?"
+                   r"([0-9a-f]{2}(?:\s[0-9a-f]{2})+)\s*\*/", table)
+    comment_bytes = [int(b, 16) for b in m.group(1).split()] if m else []
+    m2 = _re.search(r"KH_PIVOT_BYTES\[6\]\s*=\s*\{([^}]+)\}", hdr)
+    hdr_bytes = [int(b.strip(), 16) for b in m2.group(1).split(",")] if m2 else []
+    record("synth", "frame: pivot bytes agree between header and offset table",
+           comment_bytes == hdr_bytes and comment_bytes == [0x48, 0x83, 0xc4, 0x28, 0xF3, 0xC3],
+           f"header={[hex(b) for b in hdr_bytes]} table={[hex(b) for b in comment_bytes]}")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -625,6 +692,7 @@ def main() -> int:
         synthetic_policy_tests(tmp)
         synthetic_hook_state_tests(tmp)
         synthetic_boot_data_tests(tmp)
+        synthetic_frame_contract_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
