@@ -192,3 +192,82 @@ presenti, nessun `kh_trigger`; `verify-resume` → `xotext=0 rw=1 marker=0` (`pa
 **Criteri di arresto**: console che perde i servizi, non risponde, o risultati diversi dall'atteso in
 `verify-resume` → stop, nessun altro payload, nessun disarmo automatico, raccolta del log, spegnimento
 completo, ritorno a T2 dopo il recupero. Nessuna ripetizione per "ottenere un risultato migliore".
+
+---
+
+## 7. Esito dell'esecuzione su console (T5b eseguito, 2026-10-16)
+
+Artefatto sotto prova in questo run: `pl5-t5b-install-no-arm-74290bb.elf` (versione **prima** della
+correzione di §8). Accensione nuova, verificata prima di partire: `ktext=0xffffffff998f0000` (diverso da
+T5), staging azzerato (`xotext=1 rw=0`, marker 0), `verify-offsets` → `pass=17 fail=0`.
+
+Traccia del payload:
+
+```
+T5b: installing the chain with the hijack NOT live (mask=0xc, trigger skipped, redirect off)
+[A] payload staged @ cave+0x1000 … redirect=0
+[C] kh_init rc=0      [B] chain built (40 bytes)
+T5b: hijack NOT live (gate+IST writes suppressed, mask=0xc)
+[D] kh_install rc=0   [E] core=15 …
+T5b: kh_trigger SKIPPED (hijack not live by design)
+high-FW: sceSystemStateMgrEnterStandby()…
+…risveglio manuale…
+[R0] … install_no_arm=1        [R2] ktext pde/pte  xotext=0 rw=1
+[R3] cave marker = 0x4b484f4f4b454401    [R4] report-only done
+```
+
+Verifiche **indipendenti dal payload**, dopo il risveglio: `verify-offsets` → `pass=17 fail=0`;
+`verify-resume` → `xotext=0 rw=1`, `marker=0x4b484f4f4b454401` (FAIL, e il motivo è il punto sotto).
+Console sana (ping 4,3 ms, helper 200, elfldr 200).
+
+### 7.1 La domanda di T5b: risposta affermativa
+
+Le **scritture dell'installazione** (`break_hv` nella cave, oracle, catena, immagine della scratch,
+`probe_write`) **non rompono** il ciclo standby/resume: la console è tornata, il processo payload è
+sopravvissuto e lo staging è rimasto in vigore. Con T5 (staging) e T5b (staging + installazione) entrambi
+positivi, il sospetto per i blocchi al risveglio si restringe a **armo (gate+IST) · redirect RSI · trigger ·
+takeover post-resume**.
+
+### 7.2 Difetto trovato: l'installazione lasciava un claim d'armo
+
+`[R3]` ha riportato `marker = 0x4b484f4f4b454401` = `'KHOOKED.'`, mentre il log della funzione diceva *"this
+build never writes it"*. **Entrambe le affermazioni erano false.** Causa, dal codice: la coda di
+`install_resume_hook()` scrive
+
+```
+kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED);
+kwrite64(cave_addr + CAVE_SAVE_OFF + 0x00, hook.saved_gate_lo);
+…
+```
+
+**incondizionatamente**, fuori da `kh_install()` — dove nessuna skip mask arriva. Quindi il percorso
+"installazione senza armo" lasciava in memoria condivisa un'affermazione d'armo non vera. È la stessa classe
+di difetto già corretta per `PL5_DIAG=0`, e la stessa lezione che `khook_state.h` documenta (un marker è
+un'affermazione su memoria che un run precedente può aver lasciato in qualunque stato).
+
+**Rischio concreto**: `kh_marker_adopt()` confronta quel valore. Oggi l'adozione è disattivata
+(`PL5_1360_ADOPT_ARMED=0`) e il run lo riporta — "inherited armed state not adopted" — quindi il difetto è
+**contenuto**; ma un marker falso è precisamente ciò che in passato ha prodotto una diagnosi sbagliata
+(diag18 che riportava "no staged hook" perché diag17 aveva lasciato il segno).
+
+**Correzione** (commit `86b5231`): sotto `PL5_1360_INSTALL_NO_ARM` il marker **non** viene scritto,
+`g_armed` resta 0, e il log lo dichiara; i valori salvati di gate/IST restano scritti perché sono **dati**
+(ciò che è stato letto), non un'affermazione, così il test resta sul vero percorso di installazione. `[R3]`
+ora riporta il valore e se contiene un claim, invece di asserire cosa il build scrive. Nuovo test automatico:
+la scrittura di `STATE_ARMED` in coda a `install_resume_hook()` deve stare dietro la guardia del flag.
+
+### 7.3 Cosa resta da confermare
+
+L'esito di §7.1 è valido: è stato misurato sul percorso *senza* la correzione, cioè con la scrittura del
+marker inclusa — quindi "l'installazione non rompe il ciclo" è dimostrato in una versione **più invasiva** di
+quella corretta. Ciò che **non** è ancora confermato su hardware è la proprietà "nessuno stato falso":
+serve un run di conferma con `pl5-t5b-install-no-arm-86b5231.elf`
+(`sha256 4e2bc20fe7994d660af4d776867b176b65548f2004987975f0013829a2c59d52`), che deve mostrare
+`[R3] no ARMED claim` e `verify-resume` con `marker=0`.
+
+### 7.4 Difetto noto nel tool di verifica (mio)
+
+`make verify-resume` usa `PASS`/`FAIL` per un controllo **descrittivo** dello stato staged: su
+un'accensione pulita (`.text` pristine, `xotext=1 rw=0`) riporta `FAIL`, che si legge come un guasto mentre
+è lo stato corretto. Va riformulato come descrizione (`STAGED` / `PRISTINE`) invece che come esito. Non
+corretto in questo commit per non mescolare due cose: annotato.
