@@ -179,3 +179,84 @@ $ .venv-rea/bin/python tools/verify_off_1360_dump.py  -> 22/22 checks passed
   papered over.
 * The three hypervisor PAs remain out of scope for a kernel capture (see the
   round-2 correction above): they need the NPT-alias HV dump route.
+
+
+---
+
+## Update — 2026-10-16: local Recovery PUP analysis and hypervisor-image boundary
+
+### Input and container observations
+
+The local artifact examined was the PS5 13.60.00 Recovery PUP with SHA-256
+`e210451f789ebe46f55b13ae049894663b796163f7b094ab993218f1cb20aa97`.
+
+The recorded container inspection identifies an outer SLB2 v3 container with
+two entries and finds nested PUP headers at offsets `0x400` and
+`0x4A5AE600`. The inner PUP headers are visible, while the payload following
+the initial header fields remains encrypted in the examined files. No visible
+segment-name entry identified as `hypervisor` or `hv` was found.
+
+The tested offline extraction path did not produce a standalone hypervisor
+image. The available public PUP-decryption utility depends on the console's
+EncryptService; the console path documented for this test was denied with
+`EPERM`. This is the result for the examined artifact and available tooling:
+it does not establish a universal claim about every possible firmware
+decryption path, but it means the current static inputs do not provide an
+HV image from which the missing physical addresses can be derived.
+
+### Kernel-image cross-check
+
+The verified community kernel capture remains:
+
+* SHA-256:
+  `c3f745e25dc25ee7afef89eb418b295b6334bbefe8aa17e6886483c35d78cddd`
+* Layout used for the analysis: text begins at VA
+  `0xffffffff9e3f0000`; file offset is treated as ktext-relative offset
+  only within the documented flat-image layout.
+
+The capture was also represented as an ELF and examined with Ghidra headless
+and REA. The recorded scan found 37 `vmmcall` instruction sites and zero
+`vmrun`, `vmload`, or `vmsave` instruction sites. The observed
+`vmmcall` sites are consistent with guest-side hypercall wrappers; they do
+not expose the implementation of the hypervisor handler.
+
+The wrapper at ktext-relative offset **`0xC16A10`** decodes as:
+
+```asm
+push rbp
+mov  rbp, rsp
+mov  eax, 4
+vmmcall
+pop  rbp
+ret
+```
+
+This agrees with the raw-byte scan and the existing table value
+`PL5_1360_FUN_VMMCALL_HC4`. The function
+`FUN_HV_IOMMU_SET_BUFFERS = 0x4FABD0` is supported by its reference to
+`hv_iommu_set_guest_buffers completion error:%d`. The existing findings for
+`KERNEL_CFI_CHECK = 0x44F8C0` and
+`FUN_SMP_RENDEZVOUS = 0xB04440` remain consistent with the dump analysis.
+
+**Independence caveat:** the REA native provider in this run uses Ghidra
+12.1.4, so the REA and Ghidra results are not two independent disassembly
+engines. The independent cross-check for the wrapper is the raw-byte scan.
+A previous claim of zero `vmmcall` instructions in `ktext` does not apply
+to this exact dump: the recorded scan finds 37.
+
+### Status of the three HV references
+
+| Reference | Current conclusion | Reason |
+| --- | --- | --- |
+| `HV_VMMCALL_HANDLER_PA` | **Unknown; do not populate** | It denotes the hypervisor-side handler, not the guest wrapper at `0xC16A10`. No 13.60 HV image or equivalent static evidence is available in the examined inputs. |
+| `HV_CODE_CAVE_PA` | **Leave unset unless the selected design demonstrably requires it** | No 13.60 executable HV cave has been identified from an HV image. Legacy values from firmware versions up to 7.61 are not evidence for 13.60. |
+| `HV_HANDLE_VMEXIT_PA` | **Leave unset unless the selected design demonstrably requires it** | No 13.60 HV image or verified handler address is available in this analysis. |
+
+Do not substitute the guest-side wrapper, a kernel offset, or a legacy
+`0x628xxxxx` value for an HV physical address. Keep the existing fail-closed
+guard on the takeover path; the kernel capture and PUP observations do not
+justify removing it.
+
+The remaining uncertainty is bounded: the kernel-side references listed above
+have static evidence, while the three HV references do not have a verified
+13.60 source image in the analyzed material.

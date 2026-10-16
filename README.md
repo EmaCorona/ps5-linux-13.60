@@ -238,7 +238,7 @@ With these, the escape runs on 13.60 and the console resumes with NPT disabled.
 | --- | --- |
 | `KERNEL_CFI_CHECK` | `0x44F8C0` |
 | `FUN_SMP_RENDEZVOUS` | `0xB04440` |
-| `FUN_HV_IOMMU_SET_BUFFERS` | `0x4FB13D` |
+| `FUN_HV_IOMMU_SET_BUFFERS` | `0x4FABD0` |
 | `FUN_HV_IOMM_WAIT_COMPLETION` | `0x4F9030` |
 | `GAD_WRMSR_RET` | `0x255034` |
 | hypercall-4 wrapper | `0xC16A10` |

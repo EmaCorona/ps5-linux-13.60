@@ -651,3 +651,43 @@ available. A repository/code search found only
 `terrafirma2021/ps5-13.60-kernel-dump`. Without a second image there is nothing
 to diff, so "why is the armed gate fatal on 13.60 and not on 13.20" is not
 answerable offline. It needs either a 13.20 image or a live observation.
+
+
+## Update — 2026-10-16 (round 7) — PUP analysis and HV-address status
+
+The 13.60.00 Recovery PUP was inspected offline (SHA-256
+`e210451f789ebe46f55b13ae049894663b796163f7b094ab993218f1cb20aa97`).
+The container inspection found two nested PUPs, at `0x400` and
+`0x4A5AE600`. Their headers are visible, but the examined payload remains
+encrypted and no visible segment-name entry identifies a standalone
+hypervisor image. The available public PUP-decryption path depends on the
+console's EncryptService; the tested console endpoint returned `EPERM`.
+Therefore the current PUP/tooling path has not yielded an HV image. This is a
+bounded result for the examined artifact and tools, not a claim that every
+possible offline decryption technique is impossible.
+
+The verified community kernel image was analyzed as an ELF at VA
+`0xffffffff9e3f0000` with Ghidra headless and REA. The scan recorded 37
+`vmmcall` sites and zero `vmrun`, `vmload`, or `vmsave` sites. This
+supports the distinction between guest-side hypercall wrappers and the
+hypervisor implementation; it does not recover an HV handler address.
+
+The guest hypercall-4 wrapper at `0xC16A10` is confirmed by instruction
+decoding and a raw-byte scan. REA uses Ghidra 12.1.4 as its native provider
+in this analysis, so agreement between REA and Ghidra is not an independent
+engine cross-check; the raw-byte scan provides the separate check. The
+IOMMU buffers function entry is `0x4FABD0`, as already recorded in the
+offsets document.
+
+Current disposition:
+
+* `HV_VMMCALL_HANDLER_PA`: **unknown**. The guest wrapper is not the
+  hypervisor handler; no verified 13.60 HV image was available.
+* `HV_CODE_CAVE_PA` and `HV_HANDLE_VMEXIT_PA`: remain unset unless the
+  selected implementation requires them and an adequate source proves their
+  values. Do not reuse legacy addresses from older firmware.
+* The takeover guard remains necessary. These findings do not establish a
+  working takeover or a successful Linux boot on 13.60.
+
+See [1360-offsets-from-dump.md](1360-offsets-from-dump.md) for the evidence and
+artifact details.
