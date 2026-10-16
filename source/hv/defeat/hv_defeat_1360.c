@@ -58,6 +58,13 @@ extern unsigned int takeover_bin_len;
 #include "byepervisor/khook_state.h"
 #include "byepervisor/paging.h"
 #include "boot/post_resume_contract.h"
+#if PL5_1360_ARM_HOOK
+/* The trampoline block layout, the cookie magic and the RFLAGS bits all come from
+ * the shared defs file the assembly also includes. */
+#include "byepervisor/khook_trampoline_block.h"
+#include "byepervisor/khook_gate.h"
+#include "db_trampoline.h"
+#endif
 
 /* Inheriting an already-armed state from the cave marker is off unless a build
  * explicitly asks for it. Even then, kh_marker_adopt() also demands proof that
@@ -512,6 +519,111 @@ static int stage_hv_boot(void) {
  * Param layout (matches break_hv's entry.S / Byepervisor):
  *   [0]=init_cb  [1]=dmap  [2]=cookie addr  [3]=carveout  [4]=heap  [5]=pcpus
  */
+#if PL5_1360_ARM_HOOK
+/* ---- Stage-1 #DB trampoline wiring (Task 13.5) -------------------------------
+ * khook installs the pivot gadget as the gate entry. The design requires our
+ * trampoline there instead, so that a foreign trap forwards with the frame
+ * untouched. This block stages the trampoline into the scratch page, fills the
+ * verification block the trampoline reads, and installs the gate itself (khook is
+ * asked to skip its own gate write). Compiled only when arming is enabled. */
+static uint64_t g_db_block;                        /* scratch + KH_TR_OFF_BLOCK */
+static uint64_t g_db_gate_lo, g_db_gate_hi;        /* our encoding, for restore */
+static uint64_t g_db_seq = 1;
+
+static void db_block_set(uint64_t off, uint64_t val) {
+  kwrite64(g_db_block + off, val);
+}
+
+/* Stage the trampoline and its block. Called once, after kh_install captured the
+ * original gate. */
+static int db_stage(khook_t *hook) {
+  uint64_t scratch = hook->scratch_base;
+  uint64_t code = scratch + KH_TR_OFF_CODE;
+  uint64_t lo, hi, handler;
+
+  if (!hook->saved_gate_lo || !hook->kcs) {
+    notify("13.60: db_stage: no saved gate/kcs; refusing\n");
+    return -1;
+  }
+  if (!kh_gate_installable(hook->saved_gate_lo, hook->saved_gate_hi,
+                           hook->kernel_base, KH_KIMG_MAX)) {
+    notify("13.60: db_stage: IDT[1] is not a kernel gate; refusing\n");
+    return -1;
+  }
+  handler = kh_gate_decode_handler(hook->saved_gate_lo, hook->saved_gate_hi);
+
+  kwrite(code, db_trampoline_bin, db_trampoline_bin_len);
+  kh_gate_encode(code, hook->kcs, (uint8_t)hook->ist_index, KH_GATE_INTERRUPT, 0, 1,
+                 &lo, &hi);
+  g_db_block = scratch + KH_TR_OFF_BLOCK;
+  g_db_gate_lo = lo;
+  g_db_gate_hi = hi;
+
+  db_block_set(KH_TR_ARMED, 0);              /* armed only at trigger time */
+  db_block_set(KH_TR_COOKIE, KH_TRAP_COOKIE_MAGIC);
+  db_block_set(KH_TR_SEQ, 0);
+  db_block_set(KH_TR_EXPECT_SEQ, 0);
+  db_block_set(KH_TR_EXPECT_RIP, 0);
+  db_block_set(KH_TR_EXPECT_CS, 0);
+  db_block_set(KH_TR_HANDLER, handler);
+  db_block_set(KH_TR_TARGET, 0);
+  db_block_set(KH_TR_GATE_ADDR, hook->idt_base + 16 * KH_VEC_DB);
+  db_block_set(KH_TR_GATE_LO, lo);
+  db_block_set(KH_TR_GATE_HI, hi);
+
+  notify("13.60: [T] trampoline staged @ %#lx (%u B) gate=%#lx/%#lx handler=%#lx\n",
+         (unsigned long)code, (unsigned)db_trampoline_bin_len,
+         (unsigned long)lo, (unsigned long)hi, (unsigned long)handler);
+  return 0;
+}
+
+/* Point IDT[1] at the trampoline and verify the read-back. The trampoline itself
+ * re-checks this, so a silent failure here becomes a forwarded trap, not a hijack. */
+static int db_gate_install(khook_t *hook) {
+  uint64_t gate = hook->idt_base + 16 * KH_VEC_DB;
+
+  kwrite64(gate + 8, g_db_gate_hi);
+  kwrite64(gate, g_db_gate_lo);
+  if (kread64(gate) != g_db_gate_lo || kread64(gate + 8) != g_db_gate_hi) {
+    notify("13.60: db_gate_install: read-back mismatch; NOT armed\n");
+    return -1;
+  }
+  return 0;
+}
+
+/* Our own trigger. kh_trigger() computes the resume label internally and does not
+ * expose it, and the trampoline must know exactly which RIP/CS to expect -- so the
+ * sequence is repeated here with the label recorded in the block first. */
+static int db_trigger(khook_t *hook) {
+  uint64_t rsp, rbp;
+  void *resume_label = &&db_resumed;
+
+  __asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
+  __asm__ volatile("mov %%rbp, %0" : "=r"(rbp));
+
+  kwrite64(hook->scratch_base + KH_OFF_RESUME + KH_RC_RBP, rbp);
+  kwrite64(hook->arm_rip_slot, (uint64_t)resume_label);
+  kwrite64(hook->arm_rsp_slot, rsp);
+
+  db_block_set(KH_TR_EXPECT_RIP, (uint64_t)resume_label);
+  db_block_set(KH_TR_EXPECT_CS, KH_USER_CS);
+  db_block_set(KH_TR_EXPECT_SEQ, g_db_seq);
+  db_block_set(KH_TR_SEQ, g_db_seq);
+  db_block_set(KH_TR_ARMED, 1);
+
+  __asm__ volatile("pushfq              \n\t"
+                   "orq $0x100, (%%rsp) \n\t"
+                   "popfq               \n\t"
+                   "nop                 \n\t"
+                   ::: "memory", "cc");
+db_resumed:
+  /* oneshot: a second #DB must never be recognised as ours. */
+  db_block_set(KH_TR_ARMED, 0);
+  g_db_seq++;
+  return 0;
+}
+#endif /* PL5_1360_ARM_HOOK */
+
 static int install_resume_hook(uint64_t cave_addr, int redirect) {
   khook_t hook;
   kh_chain_t chain;
@@ -590,10 +702,21 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
 #else
   kh_diag_skip_mask = kh_diag_skip_mask; /* set by the diag stages above */
 #endif
+#if PL5_1360_ARM_HOOK
+  /* khook must not install its pivot as the gate entry: the gate points at our
+   * trampoline, written below after the original gate has been captured. */
+  kh_diag_skip_mask |= KH_SKIP_GATE;
+#endif
   ret = kh_install(&hook, &chain);
   notify("13.60: [D] kh_install rc=%d\n", ret);
   if (ret)
     return ret;
+#if PL5_1360_ARM_HOOK
+  if (db_stage(&hook))
+    return -2;
+  if (db_gate_install(&hook))
+    return -3;
+#endif
 #if PL5_DIAG == 18
   g_hook = hook;
   g_hook_valid = 1;
@@ -609,7 +732,11 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
 #elif PL5_DIAG == 16
   notify("13.60: P4 diag16: kh_trigger SKIPPED (gate+IST swapped, never exercised)\n");
 #else
+#if PL5_1360_ARM_HOOK
+  db_trigger(&hook);
+#else
   kh_trigger(&hook);
+#endif
 #endif
 #if PL5_DIAG == 17
   /* P4.4 first iteration: shrink the hijack window to the trigger itself by
@@ -652,6 +779,11 @@ int hv_defeat_1360_arm(void)
 #if PL5_1360_ARM_HOOK
   rc = kh_arm(&g_hook);
   notify("13.60: arm-late: kh_arm rc=%d (gate+IST written now)\n", rc);
+#if PL5_1360_ARM_HOOK
+  /* kh_arm writes the pivot as the gate entry; the trampoline must be there. */
+  if (rc == 0 && db_gate_install(&g_hook))
+    rc = -7;
+#endif
   return rc;
 #else
   /* Arming is compiled out in this build (see PL5_1360_ARM_HOOK above): the

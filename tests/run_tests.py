@@ -372,6 +372,24 @@ def package_lane_tests(tmp: Path) -> None:
         record("package", name, refused,
                f"exit {rc}" if refused else "build did NOT fail")
 
+    # Cross-check that the arming marker can actually tell the two builds apart: an
+    # arming build must pass with --arming 1, and the default build must fail with it.
+    # An earlier marker only reflected PL5_DIAG==18 and passed vacuously here.
+    rc, out = run(["make", "-j4", "PL5_1360_ARM_HOOK=1",
+                   "PL5_1360_ACK_EXPERIMENTAL_ARMING=1"], cwd=ROOT)
+    if rc != 0:
+        record("package", "arming build: trampoline staged and gate taken over",
+               False, f"build failed (exit {rc})")
+    else:
+        rc2, _ = run([sys.executable, str(tool), "--arming", "1", "--takeover", "0"], cwd=ROOT)
+        record("package", "arming build: trampoline staged and gate taken over",
+               rc2 == 0, "payload check passed with --arming 1" if rc2 == 0
+               else "payload check failed with --arming 1")
+    # Leave the tree in the shipped configuration.
+    rc, _ = run(["make", "-j4"], cwd=ROOT)
+    record("package", "default build restored after the arming check", rc == 0,
+           "rebuilt default" if rc == 0 else f"exit {rc}")
+
 
 def synthetic_registry_tests(tmp: Path) -> None:
     """The offset registry must fail when it drifts from the C table or a value
@@ -908,6 +926,61 @@ def synthetic_trampoline_tests(tmp: Path) -> None:
            len(reasons) == 9, f"{len(reasons)}/9 reasons present")
 
 
+def synthetic_gate_tests(tmp: Path) -> None:
+    """The gate descriptor encoder the payload uses to point IDT[1] at the
+    trampoline. Checked against a hand-computed descriptor, and the layout is pinned
+    against the vendored encoder so the two cannot drift apart silently."""
+    if not have("gcc"):
+        record("synth", "gate: descriptor encoding", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "gate_probe.c"
+    prog.write_text(
+        '#include "byepervisor/khook_gate.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(c, l) do { if (!(c)) { printf("BAD %s\\n", l); bad++; } } while (0)\n'
+        'int main(void) {\n'
+        '  uint64_t lo = 0, hi = 0;\n'
+        '  uint64_t h = 0xffffffff81234567ULL;\n'
+        '  kh_gate_encode(h, 0x8, 6, 0xE, 0, 1, &lo, &hi);\n'
+        '  EXP(lo == 0x81238E0600084567ULL, "hand-computed low qword");\n'
+        '  EXP(hi == 0xffffffffULL, "hand-computed high qword");\n'
+        '  EXP(kh_gate_decode_handler(lo, hi) == h, "round-trip handler");\n'
+        '  EXP(kh_gate_ist_of(lo) == 6, "IST index");\n'
+        '  EXP(kh_gate_sel_of(lo) == 0x8, "selector");\n'
+        '  EXP(kh_gate_present(lo) == 1, "present bit");\n'
+        '  EXP(kh_gate_installable(lo, hi, 0xffffffff80000000ULL, 0x10000000) == 1,\n'
+        '      "kernel gate is installable");\n'
+        '  EXP(kh_gate_installable(lo, hi, 0x400000ULL, 0x10000000) == 0,\n'
+        '      "a user-address gate is refused");\n'
+        '  uint64_t l2 = 0, h2 = 0;\n'
+        '  kh_gate_encode(h, 0x8, 6, 0xE, 0, 0, &l2, &h2);\n'
+        '  EXP(kh_gate_installable(l2, h2, 0xffffffff80000000ULL, 0x10000000) == 0,\n'
+        '      "not-present gate is refused");\n'
+        '  kh_gate_encode(h, 0x0, 6, 0xE, 0, 1, &l2, &h2);\n'
+        '  EXP(kh_gate_installable(l2, h2, 0xffffffff80000000ULL, 0x10000000) == 0,\n'
+        '      "zero-selector gate is refused");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "gate_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "gate: descriptor encoding", False, f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "gate: descriptor encoding", rc == 0 and not bad,
+           "; ".join(bad) if bad else "10 assertions")
+
+    # The vendored encoder and ours must describe the same bit layout. If upstream
+    # changes it, this fails and the layout needs a deliberate re-check.
+    khook = (ROOT / "source/byepervisor/khook.c").read_text()
+    layout = [">> 16) & 0xFFFF) << 48", "<< 47", "<< 45", "<< 40", "<< 32", ">> 32) & 0xFFFFFFFF"]
+    missing = [f for f in layout if f not in khook]
+    record("synth", "gate: layout pinned against the vendored encoder", not missing,
+           f"missing: {missing}" if missing else "6 layout facts")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -929,6 +1002,7 @@ def main() -> int:
         synthetic_restore_tests(tmp)
         synthetic_post_resume_tests(tmp)
         synthetic_trampoline_tests(tmp)
+        synthetic_gate_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]

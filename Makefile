@@ -59,7 +59,7 @@ PL5_1360_ACK_EXPERIMENTAL_ARMING ?= 0
 # ~64 MB cave write at arm time is still a suspect for the wake crash.
 PL5_1360_STAGE_PRE_SLEEP ?= 0
 
-CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover
+CFLAGS  := -std=c23 -Wall -DPL5_DIAG=$(PL5_DIAG) -DPL5_TAKEOVER_STAGE=$(PL5_TAKEOVER_STAGE) -DPL5_PROBE=$(PL5_PROBE) -DPL5_1360_TAKEOVER=$(PL5_1360_TAKEOVER) -DPL5_TAKEOVER_FW=$(PL5_TAKEOVER_FW) -DPL5_1360_ARM_HOOK=$(PL5_1360_ARM_HOOK) -DPL5_1360_ACK_EXPERIMENTAL_ARMING=$(PL5_1360_ACK_EXPERIMENTAL_ARMING) -DPL5_1360_STAGE_PRE_SLEEP=$(PL5_1360_STAGE_PRE_SLEEP) -Iinclude -Iinclude/core -Iinclude/hw -Iinclude/boot -Iinclude/byepervisor -Iinclude/hv/defeat -Iinclude/manifest -Iinclude/offsets -Isource/shellcode/hv -Isource/shellcode/kernel -Isource/shellcode/break_hv -Isource/shellcode/hv_boot -Isource/shellcode/hv_takeover -Isource/shellcode/db_trampoline
 
 # Configuration stamp. The flags above are compiler options, not inputs of any
 # rule, so make would happily reuse objects built with different ones. The stamp

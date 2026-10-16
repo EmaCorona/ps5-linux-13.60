@@ -120,8 +120,9 @@ the ROP chain.
 | `include/byepervisor/khook_frame.h` — frame layout, offsets, pivot bytes | done, host-tested |
 | `include/byepervisor/khook_ownership.h` — `kh_trap_decide()`, the reference model | done, host-tested (14 assertions, 11 refusal reasons) |
 | `include/byepervisor/khook_trampoline_defs.h` — the numeric contract shared with the assembly | done; the assembly `#include`s it, so there is one source of truth |
-| `source/shellcode/db_trampoline/` — the trampoline itself, assembled | **built and structurally verified, not staged** |
-| gate points at the trampoline | **not wired**: `kh_arm()` still installs the pivot as the gate entry |
+| `source/shellcode/db_trampoline/` — the trampoline itself, assembled | built and structurally verified on every build |
+| `include/byepervisor/khook_gate.h` — the payload's own gate encoder, plus the original-handler decoder | done, host-tested against a hand-computed descriptor |
+| gate points at the trampoline | **wired, behind `PL5_1360_ARM_HOOK=1`** (off by default): `db_stage()` writes the trampoline and the block, `kh_install()` is asked to skip its own gate write, `db_gate_install()` writes our descriptor and verifies the read-back, and `db_trigger()` records the expected RIP/CS before firing |
 
 What the trampoline implements, and what it does not: it checks gate identity, armed, `DR6.BS`,
 cookie magic, sequence, RIP, CS and `TF` in assembly, and marks *core* and *already triggered* as
@@ -130,9 +131,11 @@ this code). Its structure is enforced on the host: no `call`, `add $0x28,%rsp` t
 path, an indirect jump on the foreign path, 191 bytes (fits before its own block at +0x100), and a
 *marker* for every condition of the model so the two cannot drift apart silently.
 
-The remaining work before a console session is therefore small and specific: stage the trampoline into
-the scratch page, fill the verification block, and point the gate at it instead of the pivot — behind
-`PL5_1360_ARM_HOOK=1`, which stays off by default.
+What is *not* yet done: none of this has run on a console. The offline gate is complete — a default
+build carries no arming code at all, an arming build carries the trampoline and the gate takeover, and
+both configurations are asserted by `tools/check_payload_static.py` in the test suite (including a
+cross-check that the marker can actually tell the two builds apart, which an earlier revision's marker
+could not).
 
 ## 5. Alternatives considered
 

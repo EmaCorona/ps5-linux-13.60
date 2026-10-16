@@ -48,9 +48,11 @@ BLOBS = [
     ("break_hv", "source/shellcode/break_hv/break_hv", True),
     ("hv_boot", "source/shellcode/hv_boot/hv_boot", False),
     ("takeover", "source/shellcode/hv_takeover/takeover", True),
-    # Stage-1 #DB trampoline: built and validated every build, staged into the scratch
-    # page only when the hook is armed (off by default), so it is not in the image.
-    ("db_trampoline", "source/shellcode/db_trampoline/db_trampoline", False),
+    # Stage-1 #DB trampoline: built and validated every build, and staged from this
+    # array at runtime by db_stage() -- so it IS in the image exactly when the arming
+    # code is compiled in. Its presence is therefore configuration-dependent, which is
+    # the whole point of checking it.
+    ("db_trampoline", "source/shellcode/db_trampoline/db_trampoline", "arming"),
 ]
 
 # Firmware provenance for the shared takeover blob. A blob carries one
@@ -68,8 +70,15 @@ PHASE_A_SIBLING_MARKER = b"13.20: [VERIFY] vmmcall-stub"
 # compiled into the 13.60 code path only with PL5_1360_ARM_HOOK=1, so their
 # presence/absence in the artifact is how a regression is detected without a
 # console. The 13.20 file has its own self-test strings and is not a marker here.
-ARMING_PRESENT_MARKER = b"13.60: arm-late: kh_arm rc"
+# Whether arming is compiled in is decided by the trampoline marker below: it is
+# emitted by db_stage() under PL5_1360_ARM_HOOK and by nothing else. An earlier
+# revision used the arm-late message instead, which only appears with PL5_DIAG==18
+# and therefore could not tell an arming build from a default one (a vacuous check).
+ARMING_PRESENT_MARKER = b"13.60: [T] trampoline staged"
 ARMING_STAGING_MARKER = b"hook NOT installed (arm="
+# Present only when the arming path actually stages the Stage-1 trampoline and
+# takes over the gate; keeps "arming enabled" and "trampoline wired" from drifting.
+TRAMPOLINE_MARKER = b"13.60: [T] trampoline staged"
 
 
 class Checker:
@@ -131,12 +140,18 @@ class Checker:
         """A default build must not be able to arm the experimental hook."""
         present = ARMING_PRESENT_MARKER in self.data
         if self.arming:
-            self.ok(present, "arming: compiled IN (build asked for it explicitly)")
+            self.ok(present, "arming: compiled IN (trampoline staged)")
+            self.ok(TRAMPOLINE_MARKER in self.data,
+                    "arming: the Stage-1 trampoline is staged and the gate taken over")
         else:
             self.ok(not present,
                     "arming: compiled OUT in this build (no 13.60 arming marker)")
             self.ok(ARMING_STAGING_MARKER in self.data,
                     "arming: the staging-only notice is present")
+            self.ok(TRAMPOLINE_MARKER not in self.data,
+                    "arming: no trampoline staging in a non-arming build")
+            self.ok(b"13.60: [T] trampoline staged" not in self.data,
+                    "arming: no trampoline code in a non-arming build")
 
     def check_manifest(self) -> None:
         src = self.manifest.read_text()
@@ -171,7 +186,14 @@ class Checker:
             digest = hashlib.sha256(body).hexdigest()
             out.append((name, len(body), digest))
             self.ok(len(body) > 0, f"blob {name}: non-empty ({len(body)} bytes)")
-            if embedded:
+            if embedded == "arming":
+                if self.arming:
+                    self.ok(body in self.data,
+                            f"blob {name}: present (arming build stages it from this array)")
+                else:
+                    self.ok(body not in self.data,
+                            f"blob {name}: absent (arming compiled out)")
+            elif embedded:
                 self.ok(body in self.data,
                         f"blob {name}: embedded verbatim in the ELF")
             else:
