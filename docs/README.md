@@ -31,6 +31,7 @@ The three blockers that currently define the 13.60 work, in one line each:
 | [`1360-hv-source-search.md`](1360-hv-source-search.md) | the search for a verified 13.60 hypervisor reference and why the verdict is BLOCKED | you are tempted to fill an `HV_*_PA` |
 | [`1360-minimal-params.md`](1360-minimal-params.md)
 | [`1360-unknown-offsets-hunt.md`](1360-unknown-offsets-hunt.md)
+| [`TESTING-BRANCH-CHARTER.md`](TESTING-BRANCH-CHARTER.md) | charter del branch `testing`: conoscenze consolidate, criticità misurate, piano con criteri di successo | stai per lavorare su `testing` o vuoi il quadro completo |
 | [`1360-sonic-iso-loader-reference.md`](1360-sonic-iso-loader-reference.md) | the working 13.60 loader: identity, how to re-read its table, and what was done with each difference | you are about to trust or compare an offset value | | the 9 unresolved offsets: verdict per field, the evidence, and the measured reason the rest need a reference image | you are about to fill an `[UNKNOWN]` | | which parameters the selected vector actually reads, and which struct fields it never touches | you are about to "complete" the offset table |
 | [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md) | the completion criteria with status and evidence per line | you are deciding what may be claimed or shipped |
 | [`SUBSYSTEM-MATRIX-1360.md`](SUBSYSTEM-MATRIX-1360.md) | which subsystems are on the path to the kernel entry, which belong to "usable Linux", and what each needs | you are about to call something a boot blocker (or a boot) |
