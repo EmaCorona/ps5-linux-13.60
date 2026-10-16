@@ -288,22 +288,61 @@ Lettura del risultato, per non confondere tre cose diverse:
 | `make verify-resume` gira e legge `xotext=0 rw=1`, `marker=0` | lo staging è **ancora in vigore** dopo il ciclo | che l'escape sia sicuro |
 | la console non risponde e nessuna riga compare | niente: l'assenza non è una prova (§3.3) | che lo staging abbia corrotto il kernel |
 
+### 6.1 Esito dell'esecuzione su console (2026-10-16, eseguita)
+
+**T5 è stato eseguito e ha dato esito positivo.** Artefatto `pl5-t5-report-only-13cd264.elf`
+(`sha256 4f13743feb2866f3149358e8a02a8edc10dd3cb7e0cbc54e8aead89502d8e528`, 241016 B), build
+`PL5_DIAG=4 PL5_1360_RESUME_REPORT_ONLY=1 PL5_BUILD_COMMIT=13cd264`.
+
+| passo | esito |
+| --- | --- |
+| sanity read-only prima (T2) | `pass=17 fail=0`, `ktext=0xffffffffc30b0000` |
+| payload: header di run | `commit=13cd264 fw=0x1360 diag=4 arm=0 ack=0 takeover=0 stage_pre_sleep=0 report_only=1` |
+| installazione Linux | **saltata** dal percorso report-only (`Linux install skipped (T5 never boots)`) |
+| escape | eseguito: `NX BEFORE` registrato per kernel pmap e proc pmap |
+| standby | `sceSystemStateMgrEnterStandby()`; console in rest mode a +12 s |
+| risveglio (operatore) | console tornata, ping 3,9 ms, helper 200, elfldr 200 |
+| report del payload | `[R0]` · `[R2] ktext pde/pte … xotext=0 rw=1` · `[R3] marker = 0` · `[R4] no hook armed, no takeover, no write` |
+| conferma letta **da fuori** (`make verify-resume`) | `live resume stato .text/marker PASS  xotext=0 rw=1 marker=0`, `pass=18 fail=0` |
+| integrità dopo (T2) | `pass=17 fail=0`; `IDT[0]` gate valido, `IOMMU_SOFT C` puntatore canonico, blob WiFi integro |
+
+**Risposta a H1 (§2.4), nella parte che T5 copre**: lo **staging dell'escape** (page table di `.text` rese
+scrivibili, NX chiaro sulla pagina payload) **sopravvive** a un ciclo standby/resume reale, e il processo
+payload sopravvive con esso. Lo staging **non** è la causa dei blocchi al risveglio osservati in precedenza.
+
+Il sospetto si restringe a ciò che in questo test **non** c'era: installazione dell'hook (catena nel cave),
+armo (scritture del gate `#DB` e dello slot IST), redirect RSI, takeover post-resume. Da qui il nuovo test
+**T5b** nel backlog del charter. Precisione necessaria: con `ARM_HOOK=0` `install_resume_hook()` **non viene
+chiamata affatto**, quindi T5 non ha testato "install senza armo" — ha testato "nessun hook, solo staging".
+
+**Primo tentativo, registrato perché è un dato**: l'artefatto al commit `3258296` usciva in `fetch_linux()`
+con `File bzImage not found at default paths` **prima** dell'escape; nessuna scrittura, console mai
+addormentata. La specifica iniziale (§3) dava per scontato che `fetch_linux()` non bloccasse il percorso: non
+era vero. Corretto in `13cd264` e coperto da un controllo statico.
+
+**Limite di ciò che l'esito dimostra**: T5 dice che *questo* staging con *questo* payload sopravvive; non
+dice che qualunque combinazione che include lo staging sia sicura, né che il takeover post-resume sia
+innocuo. E il risveglio è stato manuale: la console è stata svegliata dall'operatore, quindi nulla è detto
+sul comportamento di un risveglio automatico o su tempistiche diverse.
+
 ---
 
 ## 7. Ciò che resta **non** dimostrato
 
 1. **Che Linux avvii su 13.60**: mai raggiunto. Il takeover post-resume è incompleto (fase B spenta di
    default; indirizzi HV non risolti) e serve un media di boot ≥ 64 GB.
-2. **Chi uccide al resume** (§2.4 H1): non deciso finché T5 non gira.
-3. **Che lo staging sopravviva al ciclo S3**: è la domanda di T5, ancora aperta.
+2. **Chi uccide al resume** (§2.4 H1): **ristretto**, non chiuso. T5 (§6.1) esclude lo staging; resta da
+distinguere fra installazione dell'hook, armo (gate+IST), redirect RSI e takeover → **T5b**.
+3. **Che lo staging sopravviva al ciclo S3**: **dimostrato per il caso senza hook** (§6.1). Resta aperto per
+le varianti con l'hook installato e/o armato.
 4. **La correttezza dei sei valori in `.text`** (§2.4 H4): `.text` non è leggibile — né via CPU né via GPU
    (F5). Restano statici, con le loro due fonti (cattura + loader di riferimento).
 5. **Chi sia `FUN_MP3_INITIALIZE`** (§2.4 H3): divergenza documentata, misura rinviata.
 6. **Che una qualunque sequenza che termina con un disarmo sia sicura**: T3 esonera il disarmo **isolato**.
 7. **La liveness dell'userland dopo il resume**: misurata come "non torna" in un run precedente, ma non
    caratterizzata per ogni variante.
-8. **Che il nuovo percorso report-only non aggiunga scritture**: lo dice la lettura del codice (§4.3, zero
-   scritture), non una misura — non esiste ancora un run su console.
+8. **Che il nuovo percorso report-only non aggiunga scritture**: verificato in esecuzione — il log mostra che
+non tocca hook, marker, gate o IST, e le uniche scritture restano ucred + page table + NX (§4.3 e §6.1).
 
 Un elenco di compilazione riuscita **non** è una prova di nessuno dei punti sopra: la build dice quali
 simboli esistono, non cosa fa il kernel.
