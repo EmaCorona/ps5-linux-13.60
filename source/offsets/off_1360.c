@@ -41,7 +41,10 @@ offset_list off_1360 = {
      * hardcodes 0x1D8 for 13.00/13.20/13.60). GVMSPACE not needed here. */
     .IOMMU_SOFTC = 0,                    /* [UNKNOWN] not covered by the dump */
     .VMSPACE_VM_VMID = 0x1E4,            /* [STATIC]  Byepervisor 13_60.h */
-    .VMSPACE_VM_PMAP = 0x1D8,            /* [STATIC]  Byepervisor 13_60.h; stable across 13.xx */
+    .VMSPACE_VM_PMAP = 0x1D8,            /* [DISPUTED] the old provenance was WRONG: Byepervisor 13_60.h has no such field.
+                                             ps5-payload-dev SDK case 0x13600000 gives VM_PMAP = 0x2E8 and
+                                             P_ROOT = 0x1D0 (which matches our 3.00 table). Value kept because the
+                                             escape path works with it and the capture cannot settle it. */
     .DATA_BASE_GVMSPACE = 0x3BAA570,   /* corroborated: independent 13.60 measurement anchored on the IDT (idt-0x9D90, gap stable on 11.60/12.70/13.60); our IDT at the same anchor re-verified 256/256 gates */
     /* Kernel symbols (Byepervisor 13_60.h) */
     .HOOK_ACPI_WAKEUP_MACHDEP = 0x3913B0, /* [STATIC] Byepervisor 13_60.h */

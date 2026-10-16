@@ -38,10 +38,10 @@
     {
       "field": "VMSPACE_VM_PMAP",
       "namespace": "STRUCT_OFF",
-      "class": "KNOWN_STATIC",
+      "class": "DISPUTED",
       "value": "0x1D8",
       "used_by": "escape (VM space)",
-      "provenance": "Byepervisor 13_60.h; stable across 13.xx",
+      "provenance": "wrong provenance corrected: the table claimed Byepervisor 13_60.h, which does not contain this field (verified: that file has 35 entries, all KERNEL_SYM_*/KERNEL_GADGET_*/HV_SYM_*). The authoritative ps5-payload-dev SDK, case 0x13600000, says KERNEL_OFFSET_VMSPACE_VM_PMAP = 0x2E8 with P_ROOT = 0x1D0 -- and 0x1D0 is exactly what our own 3.00 table held, which suggests an old p_root/vm_pmap confusion. Value kept at 0x1D8: the escape path works with it, and a capture scan cannot discriminate (0x1d8/0x2e8/0x1d0 all appear 200+ times and are followed by a [base+0x20] load ~equally often)",
       "verified_by": "tools/verify_off_1360.py"
     },
     {
