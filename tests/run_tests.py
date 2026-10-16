@@ -555,6 +555,60 @@ def synthetic_hook_state_tests(tmp: Path) -> None:
            "default disabled; epoch not published")
 
 
+def synthetic_boot_data_tests(tmp: Path) -> None:
+    """The Linux hand-off arithmetic and its refusal cases, compiled and run on the
+    host. include/boot/boot_data.h is freestanding, so this needs no SDK."""
+    if not have("gcc"):
+        record("synth", "boot data: hand-off checks", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "boot_data_probe.c"
+    prog.write_text(
+        '#include "boot/boot_data.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(cond, label) do { if (!(cond)) { printf("BAD %s\\n", label); bad++; } } while (0)\n'
+        'static struct pl5_boot_facts base(void) {\n'
+        '  struct pl5_boot_facts f = {0};\n'
+        '  f.bzimage_size = 0x3000; f.initrd_size = 0x2000; f.cmdline_len = 120;\n'
+        '  f.hdr_magic = PL5_SETUP_HDR_MAGIC; f.hdr_version = 0x020f;\n'
+        '  f.boot_flag = PL5_BOOT_FLAG;\n'
+        '  f.cave_start = 0x1000; f.cave_end = 0x1000 + 64u * 1024 * 1024;\n'
+        '  f.initrd_offset = 0x3000; f.page_size = 4096;\n'
+        '  return f; }\n'
+        'int main(void) {\n'
+        '  struct pl5_boot_facts f;\n'
+        '  f = base(); EXP(pl5_boot_check_data(&f) == PL5_BOOT_OK, "valid layout");\n'
+        '  f = base(); f.bzimage_size = 0; EXP(pl5_boot_check_data(&f) == PL5_BOOT_MISSING, "missing bzImage");\n'
+        '  f = base(); f.bzimage_size = 512; EXP(pl5_boot_check_data(&f) == PL5_BOOT_TOO_SMALL, "tiny bzImage");\n'
+        '  f = base(); f.hdr_magic = 0; EXP(pl5_boot_check_data(&f) == PL5_BOOT_BAD_MAGIC, "not a bzImage");\n'
+        '  f = base(); f.boot_flag = 0; EXP(pl5_boot_check_data(&f) == PL5_BOOT_BAD_MAGIC, "bad boot flag");\n'
+        '  f = base(); f.hdr_version = 0x0100; EXP(pl5_boot_check_data(&f) == PL5_BOOT_BAD_PROTOCOL, "old protocol");\n'
+        '  f = base(); f.cmdline_len = 2048; EXP(pl5_boot_check_data(&f) == PL5_BOOT_CMDLINE_TOO_LONG, "cmdline too long");\n'
+        '  f = base(); f.initrd_offset = 0x2000; EXP(pl5_boot_check_data(&f) == PL5_BOOT_INITRD_OVERLAP, "overlapping images");\n'
+        '  f = base(); f.initrd_size = 0x2001; EXP(pl5_boot_check_data(&f) == PL5_BOOT_UNALIGNED, "unaligned initrd");\n'
+        '  f = base(); f.cave_end = f.cave_start + 0x1000; EXP(pl5_boot_check_data(&f) == PL5_BOOT_NO_ROOM, "images do not fit");\n'
+        '  f = base(); f.initrd_size = 0;\n'
+        '    EXP(pl5_boot_check_data(&f) == PL5_BOOT_OK, "no initrd is allowed");\n'
+        '  f = base(); f.page_size = 0; EXP(pl5_boot_check_data(&f) == PL5_BOOT_MISSING, "bad page size");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "boot_data_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "boot data: hand-off checks", False, f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "boot data: hand-off checks", rc == 0 and not bad,
+           "; ".join(bad) if bad else "12 cases")
+
+    src = (ROOT / "source/boot/loader.c").read_text()
+    record("synth", "boot data: loader refuses bad input before staging",
+           "pl5_boot_check_data(" in src and "long bzimage_size_l" in src
+           and "long initrd_size_l" in src,
+           "size checks use long, validation runs before staging")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -570,6 +624,7 @@ def main() -> int:
         synthetic_registry_tests(tmp)
         synthetic_policy_tests(tmp)
         synthetic_hook_state_tests(tmp)
+        synthetic_boot_data_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
