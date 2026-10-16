@@ -2,13 +2,13 @@ name: Build offsets tool
 
 on:
   push:
-    branches: [master]
+    branches: [master, feature/13.60-support]
     tags: ["v*"]
     paths:
       - "tools/**"
       - ".github/workflows/build-tools.yml"
   pull_request:
-    branches: [master]
+    branches: [master, feature/13.60-support]
     paths:
       - "tools/**"
   workflow_dispatch:

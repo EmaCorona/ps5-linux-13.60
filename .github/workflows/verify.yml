@@ -1,0 +1,51 @@
+name: Verify 13.60 (static)
+
+# Single source for the static gates the 13.60 port must pass. Runs on the two
+# long-lived branches and on workflow_dispatch. No console, no PS5 SDK, and no
+# personal capture: the external 13_60.h is optional and, when it is not
+# provided, the value check is reported as SKIPPED -- never as PASS.
+
+on:
+  push:
+    branches: [master, feature/13.60-support]
+  pull_request:
+    branches: [master, feature/13.60-support]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python3 -m pip install --disable-pip-version-check capstone
+
+      - name: Offset table structure + guardrail decisions (no external artifact)
+        run: python3 tools/verify_off_1360.py --structure-only
+
+      - name: Host test suite (synthetic lane)
+        run: python3 tests/run_tests.py
+
+      - name: Full offset value check against the real 13_60.h
+        if: ${{ vars.PL5_1360_HEADER_URL != '' }}
+        run: |
+          curl -fsSL "${{ vars.PL5_1360_HEADER_URL }}" -o /tmp/13_60.h
+          python3 tools/verify_off_1360.py /tmp/13_60.h
+
+      - name: Report skipped external-artifact check
+        if: ${{ vars.PL5_1360_HEADER_URL == '' }}
+        run: |
+          echo "SKIPPED: the external 13_60.h value check did not run."
+          echo "Set the repository variable PL5_1360_HEADER_URL to a raw URL of"
+          echo "the header to enable it. No PASS is claimed for that check."

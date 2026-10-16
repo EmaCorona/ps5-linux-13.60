@@ -2,10 +2,10 @@ name: Build pLinux5-NG
 
 on:
   push:
-    branches: [master]
+    branches: [master, feature/13.60-support]
     tags: ["v*"]
   pull_request:
-    branches: [master]
+    branches: [master, feature/13.60-support]
   workflow_dispatch:
 
 permissions:
