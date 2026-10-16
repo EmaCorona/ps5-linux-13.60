@@ -23,8 +23,8 @@
       "class": "UNKNOWN",
       "value": "0x0",
       "used_by": "none (escape)",
-      "provenance": "address, not a struct offset: consumed as ktext+offset / get_offset_va() (source/hw/iommu.c:9, source/boot/prepare_resume.c:139). As STRUCT_OFF the checker would have REFUSED the correct value (STRUCT_OFF must be < 0x1000). No candidate identified: the IOMMU driver functions reference several globals but nothing names the softc; second pass: the softc field offsets (IOMMU_SC_* 0x40/0x78/0x80/0x60b90) hit dozens of functions (0xca5000-0xcbb000) and their globals do not converge, so no value is claimed",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "value not derivable, and upstream stopped needing it: in the aggregated reference table (NotSoTypicalGamer/HV-Bypass-13.60 kernel/reference/ps5linux_offsets.c, 22 firmware blocks 3.00-7.61) .IOMMU_SOFTC is present only for 3.00-4.51 and is explicitly marked '// .IOMMU_SOFTC not needed' in all 13 modern blocks (5.xx through 7.61). Our own registry lists its use as 'none (escape)'. Extrapolation from the older relation to DATA_BASE_GVMSPACE was tested and rejected: 0x3BAA570 - 0x310C9A0 = 0x0AAA570 lands INSIDE .text (< 0xCC0000), which is impossible for a data global, so the difference is not a stable invariant across that layout change. Namespace corrected earlier from STRUCT_OFF to KDATA_REL",
+      "verified_by": "upstream annotation + extrapolation test 2026-10-16 (no value claimed)"
     },
     {
       "field": "VMSPACE_VM_VMID",
