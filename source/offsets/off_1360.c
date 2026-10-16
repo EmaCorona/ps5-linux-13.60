@@ -91,7 +91,17 @@ offset_list off_1360 = {
      * unknown. Value left as-is; do not cite it as evidence until one statement
      * is withdrawn (reconcile in Task 11). */
     .G_VBIOS = 0x3DDB9F0,
-    .FUN_TRANSMITTER_CONTROL = 0,        /* [UNKNOWN] display bring-up; needed for the Linux boot path, not the escape */
+    .FUN_TRANSMITTER_CONTROL = 0xC0EAA0,   /* [CONVERGED x2] generic ATOM exec, (int cmd, void *params), matching
+                                             off_1320.c's derivation of the same symbol. Two independent methods agree:
+                                             (1) call-site semantics -- the thunk 0x39B3B0 is invoked with edi=0x4C
+                                             (= DIG1TRANSMITTERCONTROL, our constant) and rsi=&params built as
+                                             dig_transmitter_control_parameters_v1_6, from the display path that logs
+                                             with [av control k] and sits next to the AMD mmDIG1_AFMT_GENERIC_* register
+                                             strings; that thunk is jmp 0xC0EAA0, and 0xC0EAA0 itself reads edi as the cmd
+                                             and rsi as the params pointer (mov r14d,edi / mov rbx,rsi);
+                                             (2) cross-firmware drift -- 13.20's value 0xC01ED0 plus the locally measured
+                                             delta +0xCBD0 (from the verified HV_MP_STARTUP_CALL pair 0xC0A310 -> 0xC16EE0)
+                                             gives exactly 0xC0EAA0. */
     .FUN_MP3_INITIALIZE = 0xA13740,   /* verified: SIG "[MP3] failed to init message thread" -> 1 xref -> fn 0xA13740 (entry, prologue) */
     .FUN_MP3_INVOKE = 0xA12D30,          /* [CONVERGED] 3-arg API matching mp3_invoke(cmd, req, rsp):
                                              mov r15d,edi (cmd) -> mov [r14],r15d (writes the command id into
