@@ -676,6 +676,66 @@ def synthetic_frame_contract_tests(tmp: Path) -> None:
            f"header={[hex(b) for b in hdr_bytes]} table={[hex(b) for b in comment_bytes]}")
 
 
+def synthetic_ownership_tests(tmp: Path) -> None:
+    """The trap-ownership decision, run on the host against synthetic contexts.
+
+    Every case except the fully-identified one must come out FOREIGN: the chain is
+    only reachable when the trap is provably ours.
+    """
+    if not have("gcc"):
+        record("synth", "ownership: ours vs foreign traps", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "ownership_probe.c"
+    prog.write_text(
+        '#include "byepervisor/khook_ownership.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(c, l) do { if (!(c)) { printf("BAD %s\\n", l); bad++; } } while (0)\n'
+        'static struct kh_trap_context ours(void) {\n'
+        '  struct kh_trap_context c = {0};\n'
+        '  c.frame_rip = 0x4000; c.frame_cs = 0x2b; c.frame_rflags = KH_RFLAG_TF;\n'
+        '  c.dr6_bs = 1; c.armed = 1; c.gate_is_ours = 1;\n'
+        '  c.core_id = 0; c.cookie_core = 0; c.cookie_magic = KH_TRAP_COOKIE_MAGIC;\n'
+        '  c.cookie_seq = 7; c.expect_core = 0; c.expect_seq = 7;\n'
+        '  c.expect_rip = 0x4000; c.expect_cs = 0x2b;\n'
+        '  return c; }\n'
+        'static int ours_ok(struct kh_trap_context c) {\n'
+        '  return kh_trap_decide(&c).decision == KH_TRAP_OURS; }\n'
+        'static int reason_is(struct kh_trap_context c, enum kh_trap_reason r) {\n'
+        '  struct kh_trap_verdict v = kh_trap_decide(&c);\n'
+        '  return v.decision == KH_TRAP_FOREIGN && v.reason == r; }\n'
+        'int main(void) {\n'
+        '  struct kh_trap_context c;\n'
+        '  EXP(ours_ok(ours()), "fully identified -> OURS");\n'
+        '  c = ours(); c.gate_is_ours = 0; EXP(reason_is(c, KH_TRAP_R_GATE_CHANGED), "gate changed");\n'
+        '  c = ours(); c.armed = 0; EXP(reason_is(c, KH_TRAP_R_NOT_ARMED), "already disarmed");\n'
+        '  c = ours(); c.dr6_bs = 0; EXP(reason_is(c, KH_TRAP_R_NO_BS), "not a breakpoint");\n'
+        '  c = ours(); c.cookie_magic = 0; EXP(reason_is(c, KH_TRAP_R_BAD_COOKIE), "stale/foreign cookie");\n'
+        '  c = ours(); c.core_id = 3; EXP(reason_is(c, KH_TRAP_R_WRONG_CORE), "wrong core");\n'
+        '  c = ours(); c.cookie_core = 3; EXP(reason_is(c, KH_TRAP_R_WRONG_CORE), "cookie from another core");\n'
+        '  c = ours(); c.cookie_seq = 6; EXP(reason_is(c, KH_TRAP_R_STALE_SEQ), "previous arming");\n'
+        '  c = ours(); c.frame_rip = 0x9000; EXP(reason_is(c, KH_TRAP_R_RIP_MISMATCH), "foreign RIP");\n'
+        '  c = ours(); c.frame_cs = 0x33; EXP(reason_is(c, KH_TRAP_R_CS_MISMATCH), "foreign CS");\n'
+        '  c = ours(); c.frame_rflags = 0; EXP(reason_is(c, KH_TRAP_R_NO_TF), "TF not set");\n'
+        '  EXP(kh_trap_decide(0).decision == KH_TRAP_FOREIGN, "null context is foreign");\n'
+        '  struct kh_foreign_action a = kh_foreign_action_for(KH_TRAP_OURS);\n'
+        '  EXP(!a.forward_to_original && !a.restore_after && !a.disarm, "ours: no forwarding");\n'
+        '  a = kh_foreign_action_for(KH_TRAP_FOREIGN);\n'
+        '  EXP(a.forward_to_original && a.restore_after && a.disarm, "foreign: forward + restore + disarm");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "ownership_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "ownership: ours vs foreign traps", False,
+               f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "ownership: ours vs foreign traps", rc == 0 and not bad,
+           "; ".join(bad) if bad else "14 assertions (11 refusal reasons)")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -693,6 +753,7 @@ def main() -> int:
         synthetic_hook_state_tests(tmp)
         synthetic_boot_data_tests(tmp)
         synthetic_frame_contract_tests(tmp)
+        synthetic_ownership_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
