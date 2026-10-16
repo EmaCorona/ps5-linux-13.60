@@ -93,7 +93,13 @@ offset_list off_1360 = {
     .G_VBIOS = 0x3DDB9F0,
     .FUN_TRANSMITTER_CONTROL = 0,        /* [UNKNOWN] display bring-up; needed for the Linux boot path, not the escape */
     .FUN_MP3_INITIALIZE = 0xA13740,   /* verified: SIG "[MP3] failed to init message thread" -> 1 xref -> fn 0xA13740 (entry, prologue) */
-    .FUN_MP3_INVOKE = 0,                 /* [UNKNOWN] audio; needed for the Linux boot path, not the escape */
+    .FUN_MP3_INVOKE = 0xA12D30,          /* [CONVERGED] 3-arg API matching mp3_invoke(cmd, req, rsp):
+                                             mov r15d,edi (cmd) -> mov [r14],r15d (writes the command id into
+                                             the message), copies req (0x1404 B) via 0x2590b0, uses rsp
+                                             (mov rdi,rbx) before ret; canary + entry prologue; no direct
+                                             callers (address is handed out via the boot ABI). Exactly 0xA10
+                                             below the verified FUN_MP3_INITIALIZE -- the same relative distance
+                                             the 13.20 table has (0xA0B3E0 - 0xA0A9D0). */
     /* [UNKNOWN] WiFi firmware blob not yet located */
     .PS5_WIFI_FW_OFFSET = 0,
     .PS5_WIFI_FW_SIZE = 0,

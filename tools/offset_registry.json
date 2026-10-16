@@ -182,11 +182,11 @@
     {
       "field": "FUN_MP3_INVOKE",
       "namespace": "KTEXT_REL",
-      "class": "UNKNOWN",
-      "value": "0x0",
+      "class": "KNOWN_STATIC",
+      "value": "0xA12D30",
       "used_by": "audio (Linux boot)",
-      "provenance": "NOT derivable from the capture alone: 13.20 0xA0A9D0 is not an entry in 13.60 (body b7700100). G2, not the kernel entry. requires a reference kernel image, and that route is CLOSED (measured 2026-10-16): the official PUPs are encrypted throughout (entropy 8.000 bit/byte at 6 sampled offsets) and ps5-pup-decrypt refuses a different version (13.20 on 13.60) and never decrypts system/system_ex/wlan; no public 13.20/7.61 kernel dump exists. Not needed for the kernel entry (G2). See docs/1360-unknown-offsets-hunt.md",
-      "verified_by": "offline hunt 2026-10-16 (tools/hunt_1360_unknowns.py, capture c3f745e2)"
+      "provenance": "identified by convergence, not by a signature string: (1) ABI match -- the function takes three arguments and uses all of them the way our shellcode calls it, mp3_invoke(cmd_id, req, rsp): edi is stored and written into the IPC message (mov r15d,edi ; mov [r14],r15d), rsi is copied in as the request (0x1404 bytes via 0x2590b0), rdx is used at the end (mov rdi,rbx) as the response; it has an entry prologue and a stack canary and returns -22 when an initialised-flag global is not 1; (2) position -- it sits exactly 0xA10 below the verified FUN_MP3_INITIALIZE 0xA13740, and 0xA10 is precisely the distance between the two symbols in the 13.20 table (0xA0B3E0 - 0xA0A9D0); (3) it has no direct caller in .text, which is what an address exported through the boot ABI table looks like. Residual uncertainty: no unique string ties the symbol to the name, so this is weaker than the FUN_MP3_INITIALIZE derivation (which had a signature string)",
+      "verified_by": "capture disassembly + cross-firmware relative position 2026-10-16"
     },
     {
       "field": "PS5_WIFI_FW_OFFSET",
