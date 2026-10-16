@@ -1,342 +1,132 @@
 # pLinux5-NG
 
-> Experimental Linux boot project for PS5 high firmware (8.xx–13.60). Linux boot is confirmed on 13.20; 13.60 remains blocked.
+> Experimental Linux boot project for PlayStation 5. **Linux boot is confirmed on firmware 13.20; firmware 13.60 is not yet bootable.**
 
-`pLinux5-NG` ports the [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader)
-boot path to the high-firmware escape implemented by
-[Byepervisor-Reborn](https://github.com/PS5Dev/Byepervisor-Reborn).
+pLinux5-NG adapts the Linux boot path from [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader) to the high-firmware escape architecture derived from [Byepervisor-Reborn](https://github.com/PS5Dev/Byepervisor-Reborn).
 
-The reused Linux path covers bzImage/initrd placement, `boot_params`/e820 setup, hardware
-initialization, SVM/IOMMU teardown and the jump to `startup_64`. The firmware-dependent part is
-the escape and its offset table: the upstream loader uses flatz' ACPI-wakeup ROP path on firmware
-3.00–7.61, while this project uses the Byepervisor-derived khook path on high firmware.
+The project is a work in progress. Firmware support is version-specific; a shared code path or populated offset table does not, by itself, establish compatibility.
 
-> [!IMPORTANT]
-> This project is **experimental and work in progress**. Linux boot is supported on **13.20**.
-> On **13.60**, phase A has been exercised on hardware, but the post-resume takeover is blocked;
-> Linux does **not** boot on 13.60 yet. See [13.60 port](#1360-port).
+> [!WARNING]
+> The 13.60 path is experimental. Tests have caused service loss and console shutdowns while the hook is armed. The post-resume takeover is incomplete and Linux does not boot on 13.60. Do not treat a successful build or escape-stage test as proof of a working boot.
 
-The payload is intended to run from RAM and does not intentionally install permanent software.
-However, the current 13.60 hook path is known to disrupt services and has caused shutdowns during
-testing; do not treat experimental runs as risk-free.
+## Support status
 
-## What it solves
+| Firmware | Status |
+| --- | --- |
+| 3.00–7.61 | Uses the upstream ps5-linux-loader path; refer to that project's support information. |
+| 8.00–13.00 | Not validated across this range; firmware-specific support remains incomplete. |
+| 13.20 | **Supported** — Linux boot confirmed. |
+| 13.60 | **Experimental / blocked** — phase A has been exercised on hardware; the hook and post-resume takeover remain unresolved. |
 
-A retail PS5 normally runs its own system software under the hypervisor. Booting Linux requires
-a working escape, a reliable handoff across all required cores, and a boot path that prepares the
-kernel and hardware correctly. The steps below show the **intended end-to-end flow**; the final
-takeover is not yet working on firmware 13.60.
+## Overview
 
-```text
-Retail PS5, high firmware (8.xx … 13.60)
-    guest kernel + hypervisor, no root of the machine
+The existing Linux boot path prepares the kernel and initrd, sets up <code>boot_params</code> and e820 memory information, initializes required hardware, and transfers execution to the Linux entry point.
 
-        ↓
-
-jailbreak (kernel R/W)  →  elfldr on :9021
-    we can read and write the guest kernel
-
-        ↓
-
-pLinux5-NG escape (khook on the S3-resume path)
-    kernel .text made writable, XOTEXT cleared
-    hook installed on HV_MP_STARTUP_CALL → break_hv
-    rest mode → resume with NPT disabled
-
-        ↓
-
-post-resume takeover (phase B — blocked on 13.60)
-    stage Linux images and boot structures
-    complete the handoff, then boot
-
-        ↓
-
-Linux on the PS5
-    bzImage + initrd at the addresses boot_params expects
-```
-
-The payload is designed to be transient and does not intentionally flash firmware or install a
-permanent system component. Failure behavior depends on the stage reached; the current 13.60 hook
-has caused service loss and shutdowns during testing.
-
-You do not need to know what a khook, an NPT or an SVM VMCB is to use it: those details live in
-[`docs/`](docs/).
-
-## Highlights
-
-### One escape, many firmwares
-
-High-firmware variants share an escape design, but each supported firmware needs the correct
-offset table and compatibility checks. `source/offsets/off_<fw>.c` holds firmware-specific symbols
-and gadgets; `source/main.c` selects the corresponding path. A shared code path does not imply that
-every firmware is supported or validated.
-
-### Offsets that can be checked, not guessed
-
-The documented 13.60 kernel offsets are derived from a verified community kernel capture using
-instruction decoding and references, with additional live corroboration only where explicitly
-recorded. This does **not** mean every value has been validated live, and a kernel capture cannot
-establish addresses that belong to a separate hypervisor image. Methods, hashes and known limits are
-recorded in [`docs/1360-offsets-from-dump.md`](docs/1360-offsets-from-dump.md).
-
-### A destructive probe stays destructive only once
-
-Live reads of kernel `.text` are prohibited by the validation tooling because prior attempts have
-caused fatal failures on this console. A separate read at `0x2D39000` also powered the console off,
-even though the verified dump places that offset in the data region; the cause of that incident is
-still unknown. The tools reject `.text` probes and mixed address namespaces; see the port notes for
-the exact evidence and remaining uncertainty.
-
-### Boot path reused, not rewritten
-
-The Linux boot path is derived from ps5-linux-loader: bzImage/initrd placement, `boot_params`/e820,
-hardware initialization, SVM/IOMMU teardown and the jump to `startup_64`. The main porting risks are
-the firmware-specific escape, required references and reliable post-resume handoff.
-
-### Freestanding shellcode, embedded
-
-The shellcode blobs (`hv`, `kernel`, `break_hv`, `hv_boot`, `hv_takeover`) are compiled freestanding
-with the host gcc and embedded as C headers, so the payload is a single ELF to send.
-
-### Fail-closed by default
-
-`PL5_1360_TAKEOVER=0` (the default) compiles phase B out. This prevents an incomplete takeover
-from being executed; it does **not** make the experimental hook intrinsically safe. On 13.60, treat
-the default build as diagnostic only: it does not boot Linux, and the armed-hook path has known
-stability problems.
-
-## Quick start
-
-1. Set the two PS5 settings in [CRITICAL](#critical) — they are not optional.
-2. Run the [jailbreak](#running-the-jailbreak) so `elfldr` is listening on port `9021`.
-3. Get `pLinux5-NG.elf` from releases, or [build it](#building).
-4. [Send it](#sending) to the console.
+For high firmware, the main porting work is the firmware-dependent escape, offset table, and reliable handoff after resume. On 13.60, the current global <code>#DB</code> hook can interfere with unrelated processes, and the post-resume takeover is not complete.
 
 ## Requirements
 
-### Platform
+### Target console
 
-- a PS5 whose firmware is in the supported range (see [firmware support](#firmware-support)),
-- a jailbroken console with `elfldr` reachable on the LAN,
-- rest mode configured as in [CRITICAL](#critical).
+- A PS5 running a firmware supported by the table above.
+- A compatible jailbreak environment with <code>elfldr</code> reachable over the local network (default port <code>9021</code>).
+- Rest-mode configuration appropriate for the selected firmware path.
 
-### Toolchain
+For the currently tested escape path, keep **Supply Power to USB Ports** set to **Always** and disable **HDMI Device Link**. HDMI-CEC behavior can otherwise be confused with an exploit failure.
 
-- the [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk),
-- the [pLabs5-SDK](https://github.com/pLabs5/pLabs5-SDK) (for `LLVM_CONFIG`),
-- a C compiler on the host (the shellcode builds with the host gcc).
+### Build environment
 
-## CRITICAL
+- [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk).
+- [pLabs5-SDK](https://github.com/pLabs5/pLabs5-SDK), used to provide <code>LLVM_CONFIG</code>.
+- GNU Make, a host C compiler, and the host GCC used to build freestanding shellcode.
+- Alternatively, Docker Buildx.
 
-PS5 configuration. Both settings matter, and one of them will look like a crash if you skip it:
+## Build
 
-- enable rest-mode features:
-  `settings` → `system` → `power saving` → `features available in rest mode`,
-  set **`Supply Power to USB Ports`** to **`Always`**;
-- disable HDMI device link:
-  `settings` → `system` → **`HDMI`**, set **`Enable HDMI Device Link`** to **`off`**.
+Set the paths for the installed SDKs, then build from the repository root:
 
-With HDMI Device Link left on, the TV's CEC can power the console off around rest mode — which
-looks exactly like a failed escape and will send you hunting a bug that is not there.
+    export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk
+    export LLVM_CONFIG=/path/to/pLabs5-SDK/tools/nixos/llvm-config
+    make -j"$(nproc)" all
 
-## Running the jailbreak
+The main payload is written to <code>bin/pLinux5-NG.elf</code>.
 
-- point the console's DNS at `45.56.67.85`:
-  `settings` → `network` → `settings` → `set up internet connection`, press the options button on
-  the controller, `advanced settings`, set **`primary DNS`** to `45.56.67.85`, confirm. An
-  `internet connection failed` popup is expected and fine;
-- open the user's guide:
-  `settings` → `Guide & Tips, Health and Safety, and Other Information` → `User's Guide`;
-  when the page asks whether to continue despite the certificate, accept;
-- on the page that says **RELAPSE**, press `Jailbreak` and wait — it is done when `elfldr` starts.
+To build using Docker Buildx:
 
-Then build or download `pLinux5-NG.elf` and go to [sending](#sending).
+    docker buildx bake
 
-## Sending
+The Bake target writes the release artifacts to <code>bin/</code>, including <code>pLinux5-NG.elf</code> and its SHA-256 file.
 
-On Linux/unix:
+Shellcode is compiled as freestanding code and embedded into the final payload as generated C headers. The build uses <code>scripts/bin2c.py</code> rather than depending on <code>xxd -i</code>.
 
-```bash
-# from the repository root, with the payload in bin/
-cd scripts/
-chmod +x send.sh
-./send.sh PS5_IP=<Playstation 5's IP> PS5_PORT=9021
-```
+### 13.60 takeover guard
 
-On Windows, in PowerShell:
+The default <code>PL5_1360_TAKEOVER=0</code> build excludes phase B, whose required references are not yet available. This is a fail-closed build setting, **not a guarantee that the experimental 13.60 hook is safe to run**. Firmware 13.60 does not currently boot Linux.
 
-```powershell
-.\scripts\send.ps1 -PS5IP <Playstation 5's IP> -Port 9021
-```
+## Run the payload
 
-or from CMD:
+Ensure that <code>elfldr</code> is already running on the console and reachable from the host. From the repository root, send the default build:
 
-```cmd
-powershell -ExecutionPolicy Bypass -File .\scripts\send.ps1 -PS5IP <Playstation 5's IP> -Port 9021
-```
+**Linux**
 
-## Building
+    PS5_IP=<console-ip> ./scripts/send.sh
 
-### Locally
+To send a specific ELF instead:
 
-```bash
-export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk
-export LLVM_CONFIG=/path/to/pLabs5-SDK/tools/nixos/llvm-config
-make -j
-```
+    PS5_IP=<console-ip> ./scripts/send.sh /path/to/payload.elf
 
-The output is `bin/pLinux5-NG.elf`.
+**Windows PowerShell**
 
-Shellcode blobs are compiled freestanding with the host `gcc` (`-ffreestanding -nostdlib`) and
-embedded as C headers; `scripts/bin2c.py` replaces `xxd -i`, which is not present everywhere.
+    .\scripts\send.ps1 -PS5IP <console-ip>
 
-### Docker
+The send scripts default to port <code>9021</code>; override it with <code>PS5_PORT</code> on Linux or <code>-Port</code> on Windows.
 
-```shell
-docker buildx bake
-```
+**Important:** use only a firmware known to work for the result you expect. On 13.20, Linux boot is supported. On 13.60, the current payload is still experimental and does not provide a working Linux boot.
 
-The output lands at `bin/pLinux5-NG.elf`.
+## Architecture
 
-## How it works
-
-1. **Jailbreak, then payload.** The console has kernel read/write and `elfldr` loads
-   `pLinux5-NG.elf`. The payload identifies the firmware and selects its offset table.
-2. **Escape.** The high-firmware path prepares the required kernel state and uses the S3-resume
-   `HV_MP_STARTUP_CALL` path. Phase A has been exercised on 13.60 hardware, but the armed hook is
-   not yet stable and must not be treated as a completed end-to-end escape path.
-3. **Takeover (phase B).** The intended handoff stages Linux images, boot structures and required
-   shellcode before transferring control to the Linux boot path. Phase B is blocked on 13.60 while
-   required hypervisor references and the post-resume execution path remain unresolved.
-4. **Linux.** The intended result is to boot bzImage and initrd using the prepared `boot_params`.
-
-Linux boots on 13.20. On 13.60, phase A has been exercised but phase B and the Linux boot have not
-been demonstrated; see [13.60 port](#1360-port).
-
-## Firmware support
-
-| firmware | escape | Linux boot |
-| --- | --- | --- |
-| 3.00 … 7.61 | flatz ACPI-wakeup ROP (upstream ps5-linux-loader) | upstream |
-| 8.xx … 13.00 | Byepervisor khook design | not validated across this range; firmware-specific offsets/support remain incomplete |
-| 13.20 | Byepervisor khook | **supported** |
-| 13.60 | Byepervisor khook, confirmed on hardware | **blocked** — see below |
-
-## 13.60 port
-
-13.60 follows the same overall escape and boot architecture, but its offsets and high-firmware
-references must be validated independently. Shared code does not establish firmware compatibility.
-
-In place today:
-
-- `source/offsets/off_1360.c` — kernel/HV symbols and gadgets (from Byepervisor-Reborn's
-  [`13_60.h`](https://github.com/EchoStretch/Byepervisor-Reborn/blob/main/include/offsets/13_60.h)),
-  extended with values derived and validated in this project;
-- `include/hv/defeat/hv_defeat_1360.h` and `source/hv/defeat/hv_defeat_1360.c`;
-- routing in `source/main.c` / `source/core/utils.c` (`case 0x1360`).
-
-The phase-A path has been exercised on 13.60 hardware. This is not proof of a stable armed hook,
-a working post-resume takeover or a Linux boot.
-
-**Kernel offsets with recorded static evidence** (the method, input hashes and individual validation
-status are documented in [`docs/1360-offsets-from-dump.md`](docs/1360-offsets-from-dump.md); not every
-value has been confirmed by a live read):
-
-| value | 13.60 |
+| Path | Purpose |
 | --- | --- |
-| `KERNEL_CFI_CHECK` | `0x44F8C0` |
-| `FUN_SMP_RENDEZVOUS` | `0xB04440` |
-| `FUN_HV_IOMMU_SET_BUFFERS` | `0x4FABD0` |
-| `FUN_HV_IOMM_WAIT_COMPLETION` | `0x4F9030` |
-| `GAD_WRMSR_RET` | `0x255034` |
-| hypercall-4 wrapper | `0xC16A10` |
-| `G_VBIOS` | `0x3DDB9F0` |
+| <code>source/main.c</code> | Entry point and firmware dispatch. |
+| <code>source/core/</code> | Core primitives, logging, process and memory helpers. |
+| <code>source/offsets/</code> | Firmware-specific kernel and hypervisor offset tables. |
+| <code>source/hv/defeat/</code> | Firmware-specific escape implementation. |
+| <code>source/byepervisor/</code> | Vendored Byepervisor-derived components. |
+| <code>source/boot/</code> | Resume preparation and Linux boot handoff. |
+| <code>source/hw/</code> | Firmware, GPU and device helpers. |
+| <code>source/shellcode/</code> | Freestanding shellcode embedded into the payload. |
+| <code>tools/</code> | Host-side generators, verifiers and payload utilities. |
+| <code>scripts/</code> | Build and payload-transfer helpers. |
+| <code>docs/</code> | Technical evidence, status reports and investigation notes. |
 
-**Still blocking a Linux boot on 13.60:**
+## Known limitations
 
-- `HV_VMMCALL_HANDLER_PA` remains **unknown**: the guest-side wrapper at `0xC16A10` is not the
-  hypervisor handler, and the examined PUP/kernel artifacts have not yielded a verified 13.60 HV
-  image. Do not substitute a legacy `0x628xxxxx` value. `HV_CODE_CAVE_PA` and
-  `HV_HANDLE_VMEXIT_PA` must remain unset unless the active design requires them and credible
-  13.60-specific evidence establishes their values;
-- several data/audio/display references remain unresolved or require reconciliation, including
-  `IOMMU_SOFTC`, `DATA_BASE_GVMSPACE`, `FUN_MP3_*`, `FUN_TRANSMITTER_CONTROL` and the Wi-Fi firmware
-  pair. Determine which are genuinely required for the first boot rather than treating every
-  placeholder as equally blocking;
-- **the armed khook is not stable**: the global `#DB` gate can route unrelated debug exceptions into
-  a chain that assumes its own trap context. Tests recorded service loss and shutdown when armed;
-  restoring the gate immediately after a diagnostic trigger avoided that specific failure but does
-  not solve the required resume path. Full evidence is in
-  [`docs/1360-khook-death.md`](docs/1360-khook-death.md).
-
-`PL5_1360_TAKEOVER=0` (default) compiles phase B out and retains the fail-closed guard. This only
-prevents execution of the incomplete takeover; it does not make an armed 13.60 run risk-free.
-
-## Project structure
-
-```text
-source/
-  main.c            entry point and firmware routing
-  core/             kernel primitives, logging, process and memory helpers
-  offsets/          per-firmware offset tables (off_<fw>.c)
-  hv/defeat/        the hypervisor escape, per firmware family
-  byepervisor/      vendored khook + kdlsym (see license)
-  boot/             resume preparation and the Linux boot handoff
-  hw/               firmware, GPU and device helpers
-  shellcode/        freestanding blobs, embedded as C headers
-  manifest/         payload identity (name, version)
-include/            mirrors source/
-tools/              host-side generators and the on-console tools
-docs/               documentation (see below)
-scripts/            build and send helpers
-bin/                build output (not in git)
-```
+- **13.60 does not boot Linux.** The post-resume takeover remains blocked.
+- The armed <code>#DB</code> hook is not stable and has disrupted services or caused shutdowns in tests.
+- <code>HV_VMMCALL_HANDLER_PA</code> for 13.60 remains unknown. A guest-side kernel hypercall wrapper is not the hypervisor-side handler.
+- <code>HV_CODE_CAVE_PA</code> and <code>HV_HANDLE_VMEXIT_PA</code> are not established for 13.60; do not reuse addresses from older firmware without evidence.
+- Several data, audio, display and Wi-Fi references remain unresolved or need further validation.
+- Live reads of kernel <code>.text</code> are prohibited by the validation tooling because previous attempts caused fatal failures. A separate fatal read at <code>0x2D39000</code> remains unexplained; the dump classifies that offset as data, not code.
+- Firmware-specific offsets and behavior must be validated independently. Do not infer support for every version in a range from the support of one version.
 
 ## Documentation
 
-```text
-docs/README.md                 index of the documentation below
-docs/1360-port-status.md       chronological record: what was tried, what the console did
-docs/1360-offsets-from-dump.md evidence, derivations and limits of the 13.60 offsets
-docs/1360-khook-death.md       why the armed khook kills this console, with the bisection
-docs/analyst-recap-1360.md     handoff summary with raw evidence, questions and next steps
-docs/upstream-ps5-linux-loader-README.md  the upstream project's README, for reference
-```
+Start with the [documentation index](docs/README.md).
 
-`docs/` is written as evidence: commands, raw output and readings, so a claim can be re-checked
-rather than taken on trust.
+| Document | Contents |
+| --- | --- |
+| [13.60 port status](docs/1360-port-status.md) | Implementation status, experiments, evidence and remaining blockers. |
+| [13.60 offset analysis](docs/1360-offsets-from-dump.md) | Kernel-dump provenance, offset derivations, validation and limits. |
+| [13.60 khook investigation](docs/1360-khook-death.md) | Evidence and analysis of the unstable armed hook. |
+| [Analyst recap](docs/analyst-recap-1360.md) | Investigation handoff, results and open questions. |
+| [Upstream loader README](docs/upstream-ps5-linux-loader-README.md) | Reference documentation from ps5-linux-loader. |
 
-## Limitations
+The documentation distinguishes measured observations, static derivations, hypotheses and unresolved questions. Treat historical notes as an investigation record and use the current status above for the project summary.
 
-- Only **13.20** boots Linux today; 13.60 escapes but cannot take over yet.
-- The escape requires **rest mode** and a physical wake-up: the console must actually suspend and
-  resume for the hook to run.
-- Live reads of kernel `.text` are prohibited by the validation tooling because prior attempts
-  have failed fatally on this console. A separate read at `0x2D39000` (classified as data by the
-  dump) also powered the console off for an unresolved reason; do not present that incident as proof
-  that the address lies in `.text`. See [offset evidence](docs/1360-offsets-from-dump.md).
-- The armed khook currently captures `#DB` from every process, not only ours (see
-  [13.60 port](#1360-port)); until it is scoped, an armed run is expected to disturb other payloads.
-- The console's firmware version must be in the supported range; an unsupported one stops with
-  `something went wrong during initialization` and changes nothing.
+## License and attribution
 
-## License
+This project is licensed under **AGPL-3.0-only**. The boot path and shellcode derive in part from [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader), and components under <code>source/byepervisor/</code> derive from [Byepervisor-Reborn](https://github.com/PS5Dev/Byepervisor-Reborn). Retain the original copyright and license notices for third-party code.
 
-This project is licensed under the **AGPL-3.0** licence.
-The boot path and shellcode are derived from **ps5-linux-loader**, which is **GPL-3.0**; those files
-retain their original authorship and are used here in accordance with the GPL/AGPL compatibility
-provisions. The high-firmware escape is adapted from **Byepervisor-Reborn**, whose `khook.c`,
-`kdlsym.c` and `paging.c` are vendored under `source/byepervisor/` and keep their notices.
+## Disclaimer
 
-## Legal
-
-I, niko86c/pLabs5, as well as its contributors, are not affiliated with, associated with, sponsored
-by, endorsed by or otherwise established with Sony Interactive Entertainment, PlayStation, or any of
-their other companies or works unless explicitly stated otherwise.
-***Just because an explicit mention above isn't present does **NOT** mean otherwise.***
-
-All software is provided "as is", without warranty of **ANY** kind, express or implied. Use all
-software at your own risk.
-
-You are solely responsible for complying with the terms of service of all programs, as well as any
-applicable law.
+This project is independent and is not affiliated with, endorsed by, or sponsored by Sony Interactive Entertainment. The software is provided “as is”, without warranty. You are responsible for complying with applicable laws and the terms governing any software or services you use.
