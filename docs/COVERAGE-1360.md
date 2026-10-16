@@ -79,3 +79,28 @@ rispetto al rischio.
    percorso rimasta non misurata. Da progettare con la stessa disciplina di T5/T5b.
 3. Per la fase B serve anche che il blob condiviso accetti `PL5_TAKEOVER_FW=1360`: oggi rifiuta un firmware
    con valori ignoti (di proposito).
+
+---
+
+## 7. Confronto con l'altro payload (`1360linux.elf`)
+
+Metodo: per ognuno dei 56 valori numerici del nostro registro, ricerca dell'encoding nel binario
+(`sha256 e51a0298…`) e verifica se l'occorrenza cade nella finestra della voce 13.60 (offset
+179000–180000).
+
+| dimensione | esito |
+| --- | --- |
+| **offset kernel** | **parità**: 42/56 dei nostri valori sono nella voce 13.60 dell'altro payload; **nessuno** dei nostri cade altrove nel file |
+| campi che noi tracciamo e loro **non** hanno nel record | 14 (simboli HV `HV_SYM_PCPUS`/`HV_SYM_HEAP_BASE`, `GAD_POP_RAX_RET`, `GAD_POP_RSP_RET`, e le funzioni del percorso legacy: `KERNEL_SYM_SYS_GETUID`, `HOOK_ACPI_WAKEUP_MACHDEP`, `FUN_PRINTF`, `FUN_SMP_NO_RENDEVOUS_BARRIER`, …) |
+| **indirizzi fisici HV** | **loro li hanno, noi no**: `0x62806f00` (code cave) e `0x62847375` (handler HV) stanno dentro la stessa finestra |
+| provenienza | noi: registro per-campo con `provenance` + `verified_by` + verifica live su console; loro: citano `HVBUG/findings/LINUX-OFFSETS-13.60-DERIVED.md` (non pubblico) e derivano `H` **a runtime dalla mappa EFI** |
+
+**Verdetto: dietro sulla capacità, avanti sulla verificabilità.** Il divario è localizzato — i valori HV, cioè
+la fase B — non diffuso. Gli offset kernel sono gli stessi (e i nostri 13.60 erano già stati risolti *da questo
+stesso artefatto*).
+
+Cautela sul metodo di questo confronto, da non dimenticare: la finestra di 1000 byte **contiene due voci
+adiacenti** (la vicina sembra il 13.20) e sconfina in un blocco di **codice** (dai +600 in poi i valori sono
+byte d'istruzione). Perciò il conteggio "valori loro che noi non abbiamo" **non** è stato riportato: non è
+separabile senza prima fissare i confini dei record. Due falsi positivi già identificati: `0x7a248` è il
+nostro `PS5_WIFI_FW_SIZE` (500296, nel registro in decimale) e i valori della voce adiacente non sono "loro".
