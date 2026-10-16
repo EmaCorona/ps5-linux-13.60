@@ -198,6 +198,33 @@ known size, and no run is bounded in a way that identifies a firmware blob. With
 blob's bytes or a 13.xx reference, the two fields cannot be pinned, and a guess here would
 be indistinguishable from a wrong value.
 
+
+## Fifth pass: *** Wi-Fi fields and IOMMU_SOFTC, methods and their outcomes
+
+Every route tried for the two Wi-Fi fields, with the result, so none is re-walked:
+
+| method | outcome |
+| --- | --- |
+| public firmware sources (NXP/Linux repos, the projects' own scripts, container layers) | no source: the projects expect the user or the distro to supply the blob; the base image is bazzite-deck and this workstation *is* bazzite-deck with no iw620 anywhere |
+| aggregated reference table (22 firmware blocks 3.00-7.61) | no 13.xx block; sizes 492304/493000/493532/494536/497636, offsets 0x1274460 → 0x1655800 |
+| entropy runs (512 B and 4 KB windows, thresholds 7.5/7.0/6.5, 200-900 KB) | no run matches any known size |
+| size needle (immediates in the known-size window near a data reference in .text) | 0 hits |
+| sibling-blob landmark (the PS5 GPU VCN firmware, 404544 B) | the VCN bytes are *not* in the capture |
+| relative invariant across the reference table | WIFI_OFFSET - KERNEL_CFI_CHECK is the most stable pair (~0xFCFF60-0xFD0050 from 5.00 to 7.61), but applying it to 13.60's verified CFI (0x44F8C0) gives 0x141F910, and the transmitter/MP3 anchors give 0x14B3FD0 and 0x149CF20 -- up to 7 MB apart, and the entropy profile across that whole window shows no firmware plateau (5.6-7.6 bit/byte with dips to 1.5) |
+| the console | its own offset kit (/data/pl5-1360.zip, 88 MB, downloaded and verified) contains only the failed extraction: report.txt, offsets.json, off_1360.c and the 88,276,992-byte all-zero data_dump.bin |
+
+The capture's own metadata explains part of the difficulty and was read in full: it is a
+"flat live RAM reconstruction" (text 0xCC0000 + data 0x5600000), and 21.8 MB of it is
+zero-filled, including the 2.75 MB of explicitly unmapped pages (verified: that range is
+all zeros). The warning in the same file says it is not a decrypted kernel.bin.
+
+**IOMMU_SOFTC**: no value. The reference table carries it only for 3.00-4.51 and marks it
+"// .IOMMU_SOFTC not needed" in all thirteen modern blocks; the older invariant
+(IOMMU_SOFTC = DATA_BASE_GVMSPACE - 0x310C9A0) was tested and rejected because it puts the
+symbol inside .text on 13.60. The 13.60 community tables found (arg0WAK/WAK1360-Relapse
+offsets/13.60.js) are userland/jailbreak offsets (libkernel, pthread, gadgets), not
+kernel-image fields.
+
 ## Where to go next (in order of information gained per unit of risk)
 
 1. **A 13.20 or 7.61 kernel image with provenance.** It turns items 5–7 from
