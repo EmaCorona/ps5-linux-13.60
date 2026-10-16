@@ -612,8 +612,11 @@ firmware (`PL5_TAKEOVER_FW != 1360`), so the two sides cannot disagree.
 duplicates `0x62847375` in five places (lines ~149/633/636/646/652) instead of
 naming it once. Same class of contamination, different file; left alone because
 13.20 is the working platform and the change is untestable here.
-`solution/shellcode/hv_takeover/takeover.c` remains dead code (absent from the
-Makefile) and still carries the 13.20 defines.
+`solution/shellcode/hv_takeover/takeover.c` was reported here as dead code still
+carrying the 13.20 defines. It is **not present in this branch and was never
+tracked here** (`git ls-files solution/` is empty), so the ambiguity is gone: the
+canonical blob is `source/shellcode/hv_takeover/takeover.S`. See
+[`SOURCE-MAP.md`](SOURCE-MAP.md) for the live/generated/historical map.
 
 ## Update — 2026-10-16 (round 6) — armed-gate anatomy on 13.60; the 13.20 differential is blocked
 
