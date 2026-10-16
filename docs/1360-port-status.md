@@ -1,11 +1,16 @@
 # 13.60 port — status, evidence and blockers
 
-> **Current status, for orientation.** This file is the chronological record and is kept as it was
-> written, day by day. If you only want the outcome: the escape works on 13.60, the missing offset
-> values have been derived from a verified kernel capture and validated on the console
-> ([`1360-offsets-from-dump.md`](1360-offsets-from-dump.md)), and what still blocks the Linux boot
-> is the armed-khook behaviour ([`1360-khook-death.md`](1360-khook-death.md)). The hypervisor
-> addresses remain out of reach of a kernel capture.
+> **This file is the chronology, not the current statement.** It is kept as it was written, day by
+> day, and the sections further down describe the state at the moment they were appended. For the
+> current status read the root [`README.md`](../README.md) (support table + *Known limitations*),
+> with [`BASELINE_1360.md`](BASELINE_1360.md) for the frozen starting point. Where this file and the
+> root README disagree, the README is current and this is history.
+>
+> Current one-line outcome: the escape works on 13.60, the kernel-relative offsets were derived from
+> a verified kernel capture ([`1360-offsets-from-dump.md`](1360-offsets-from-dump.md)), and the boot
+> is blocked by three separate things — the armed global `#DB` hook, the unproven post-resume
+> payload continuity ([`1360-khook-death.md`](1360-khook-death.md)), and the still-unknown
+> hypervisor physical addresses ([`1360-hv-pas-offline-verdict.md`](1360-hv-pas-offline-verdict.md)).
 
 Branch: `feature/13.60-support` (fork `EmaCorona/ps5-linux-13.60`).
 Target console: PS5 Slim, fw **13.60**, regular (non-pro) SoC.
@@ -20,13 +25,13 @@ missing.
 
 | File | What it does |
 |---|---|
-| `source/offsets/off_1360.c` | 13.60 kernel/HV symbol + gadget table, values taken from Byepervisor-Reborn `include/offsets/13_60.h`; same field layout as `off_1320.c`. Fields not published by Byepervisor are left `0` with explicit `TODO(13.60)` comments. |
+| `source/offsets/off_1360.c` | 13.60 kernel/HV symbol + gadget table, values taken from Byepervisor-Reborn `include/offsets/13_60.h`; same field layout as `off_1320.c`. Every field now carries an evidence class (`KNOWN_STATIC`, `KNOWN_HARDWARE_VALIDATED`, `UNKNOWN`, `NOT_REQUIRED_FOR_1360_PATH`); a field with no evidenced value stays `0` and is labelled `[UNKNOWN]`. *Historical note: earlier revisions left those fields `0` with bare `TODO(13.60)` comments.* |
 | `include/hv/defeat/hv_defeat_1360.h` | Public API: `hv_defeat_1360()` (arm), `hv_defeat_1360_post_resume()`. |
 | `source/hv/defeat/hv_defeat_1360.c` | 13.60 sibling of `hv_defeat_1320.c`: Byepervisor khook escape (kernel `.text` RW + XOTEXT clear, khook on `HV_MP_STARTUP_CALL` → `break_hv`). Phase B (post-resume takeover) is compiled out unless `PL5_1360_TAKEOVER=1` because its addresses are still unknown (see §5). |
 | `source/core/utils.c` | `case 0x1360: env_offset = off_1360;` |
 | `source/main.c` | dispatches 13.20/13.60 inside the `0x0800..0x1400` range and calls the matching post-resume hook. |
 | `tools/verify_off_1360.py` | static check: every symbol/gadget in `13_60.h` is mapped with the same value; `off_1360.c` initialises the same `offset_list` field set as `off_1320.c`; routing present. Currently **PASS** (35/35 symbols, 57/57 fields). |
-| `README.md`, `CONTRIBUTING.md` | 13.60 state + the four values still missing. |
+| `README.md`, `CONTRIBUTING.md` | 13.60 state. *Historical note: this row used to say "the four values still missing"; two of those (kernel-relative `KERNEL_CFI_CHECK`, `FUN_SMP_RENDEZVOUS`) were later derived from the capture, while the hypervisor-side addresses remain unknown.* |
 
 Deliberate design choice: 13.20 and 13.60 share the same algorithm, so
 `hv_defeat_1360.c` is a sibling of `hv_defeat_1320.c` (project style is one file
@@ -125,6 +130,12 @@ hook's live state across the suspend/resume cycle -- exactly what the P4 /
 diag17-19 arm-late work targets.
 
 ## 5. Still missing for phase B (Linux boot)
+
+> *Historical section, written before the offline offset work.* Two of the four values below are
+> now derived from the verified capture (`KERNEL_CFI_CHECK`, `FUN_SMP_RENDEZVOUS`); the ones that
+> remain genuinely missing are the **hypervisor-side** addresses, which a kernel capture cannot
+> reach — see [`1360-hv-pas-offline-verdict.md`](1360-hv-pas-offline-verdict.md) and §7. The table
+> is kept as written, with the 13.20 column shown only for reference.
 
 Four firmware-specific addresses, **not** in Byepervisor's `13_60.h`; 13.20
 values shown for reference:
