@@ -349,6 +349,74 @@ def package_lane_tests(tmp: Path) -> None:
            rc == 2, f"exit {rc}")
 
 
+def synthetic_registry_tests(tmp: Path) -> None:
+    """The offset registry must fail when it drifts from the C table or a value
+    breaks its namespace. Each case runs the checker in a throwaway tree that
+    mirrors tools/ + source/offsets/ so ROOT resolves there."""
+    import json
+    import shutil
+
+    def tree(name: str) -> Path:
+        t = tmp / name
+        (t / "tools").mkdir(parents=True)
+        (t / "source" / "offsets").mkdir(parents=True)
+        shutil.copy(ROOT / "tools/check_offset_registry.py", t / "tools/")
+        shutil.copy(ROOT / "tools/offset_registry.json", t / "tools/")
+        shutil.copy(ROOT / "source/offsets/off_1360.c", t / "source/offsets/")
+        shutil.copy(ROOT / "Makefile", t / "Makefile")
+        return t
+
+    def run_in(t: Path) -> tuple[int, str]:
+        return run([sys.executable, str(t / "tools/check_offset_registry.py")])
+
+    def edit(t: Path, mutate) -> None:
+        p = t / "tools/offset_registry.json"
+        reg = json.loads(p.read_text())
+        mutate(reg)
+        p.write_text(json.dumps(reg, indent=2))
+
+    base = tree("reg-base")
+    rc, out = run_in(base)
+    record("synth", "registry: unmodified tree passes", rc == 0, f"exit {rc}")
+
+    t = tree("reg-drift")
+    edit(t, lambda r: r["entries"][4].__setitem__("value", "0x1"))
+    rc, out = run_in(t)
+    record("synth", "registry: value drift vs the C table is caught",
+           rc == 1 and "equal the C table" in out, f"exit {rc}")
+
+    t = tree("reg-unknown")
+
+    def non_zero_unknown(r):
+        for e in r["entries"]:
+            if e["class"] == "UNKNOWN":
+                e["value"] = "0x1000"
+                break
+    edit(t, non_zero_unknown)
+    rc, out = run_in(t)
+    record("synth", "registry: an UNKNOWN field with a value is caught",
+           rc == 1 and "carries no value" in out, f"exit {rc}")
+
+    t = tree("reg-namespace")
+
+    def hv_as_ktext(r):
+        for e in r["entries"]:
+            if e["field"] == "KERNEL_CFM_CHECK":  # never matches
+                pass
+            if e["field"] == "FUN_SMP_RENDEZVOUS":
+                e["value"] = "0xCE0000"     # one past the text image
+    edit(t, hv_as_ktext)
+    rc, out = run_in(t)
+    record("synth", "registry: a value outside its namespace is caught",
+           rc == 1 and "inside the kernel text image" in out, f"exit {rc}")
+
+    t = tree("reg-missing")
+    edit(t, lambda r: r["entries"].pop())
+    rc, out = run_in(t)
+    record("synth", "registry: a field missing from the registry is caught",
+           rc == 1 and "same fields" in out, f"exit {rc}")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -361,6 +429,7 @@ def main() -> int:
         # the blob the payload check expects.
         package_lane_tests(tmp)
         synthetic_make_flag_tests()
+        synthetic_registry_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]

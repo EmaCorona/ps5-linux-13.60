@@ -34,6 +34,9 @@ jobs:
       - name: Offset table structure + guardrail decisions (no external artifact)
         run: python3 tools/verify_off_1360.py --structure-only
 
+      - name: Typed offset registry vs the C table and its namespaces
+        run: python3 tools/check_offset_registry.py
+
       - name: Host test suite (synthetic lane)
         run: python3 tests/run_tests.py
 
