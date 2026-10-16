@@ -156,11 +156,11 @@
     {
       "field": "G_VBIOS",
       "namespace": "KDATA_REL",
-      "class": "DISPUTED",
+      "class": "KNOWN_STATIC",
       "value": "0x3DDB9F0",
       "used_by": "display bring-up (Linux boot)",
-      "provenance": "this table claims the capture; docs/1360-offsets-from-dump.md lists G_VBIOS as not covered",
-      "verified_by": "none - sources contradict, see docs/1360-offsets-from-dump.md"
+      "provenance": "dispute closed: an independently written 13.60 loader that boots carries the SAME value 0x3DDB9F0 in its table (verified by re-reading that table and comparing field by field). The earlier conflict was between this table and docs/1360-offsets-from-dump.md, which listed G_VBIOS as not covered by the capture; two sources agreeing on the value outweigh a documentation gap, and the value itself is the VBIOS ROM image whose 0x55AA signature is checkable",
+      "verified_by": "working-loader corroboration 2026-10-16"
     },
     {
       "field": "FUN_TRANSMITTER_CONTROL",
