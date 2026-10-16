@@ -736,6 +736,74 @@ def synthetic_ownership_tests(tmp: Path) -> None:
            "; ".join(bad) if bad else "14 assertions (11 refusal reasons)")
 
 
+def synthetic_restore_tests(tmp: Path) -> None:
+    """The restore planner: every state must either restore or refuse, and the
+    read-back must be checked rather than assumed."""
+    if not have("gcc"):
+        record("synth", "restore: planner and read-back", False, "SKIP: gcc unavailable")
+        return
+    prog = tmp / "restore_probe.c"
+    prog.write_text(
+        '#include "byepervisor/khook_restore.h"\n'
+        '#include <stdio.h>\n'
+        'static int bad;\n'
+        '#define EXP(c, l) do { if (!(c)) { printf("BAD %s\\n", l); bad++; } } while (0)\n'
+        'static struct kh_saved_state good(void) {\n'
+        '  struct kh_saved_state s = {0};\n'
+        '  s.valid = 1; s.gate_lo = 0x1234; s.gate_hi = 0x5678; s.ist = 0x9ABC; s.dr7 = 0x400;\n'
+        '  return s; }\n'
+        'int main(void) {\n'
+        '  struct kh_saved_state s = good();\n'
+        '  struct kh_restore_plan p;\n'
+        '  EXP(kh_saved_state_ok(&s), "captured state is usable");\n'
+        '  p = kh_restore_plan_for(KH_ST_ARMED, &s);\n'
+        '  EXP(p.ok && p.steps == KH_RESTORE_ALL, "armed restores gate, IST and DR7");\n'
+        '  p = kh_restore_plan_for(KH_ST_TRIGGERED, &s);\n'
+        '  EXP(p.ok && p.steps == KH_RESTORE_ALL, "triggered restores everything");\n'
+        '  p = kh_restore_plan_for(KH_ST_FAILED, &s);\n'
+        '  EXP(p.ok && p.steps == KH_RESTORE_ALL, "an error path still owes a restore");\n'
+        '  p = kh_restore_plan_for(KH_ST_RESTORED, &s);\n'
+        '  EXP(p.ok && p.steps == 0, "already restored: nothing to do");\n'
+        '  p = kh_restore_plan_for(KH_ST_UNINITIALIZED, &s);\n'
+        '  EXP(p.ok && p.steps == 0, "nothing armed, nothing to write");\n'
+        '  struct kh_saved_state none = {0};\n'
+        '  p = kh_restore_plan_for(KH_ST_ARMED, &none);\n'
+        '  EXP(!p.ok && p.steps == 0, "no saved state: refuse instead of arming on");\n'
+        '  p = kh_restore_plan_for(KH_ST_UNINITIALIZED, &none);\n'
+        '  EXP(!p.ok, "uninitialized without captured state is not ok");\n'
+        '  struct kh_saved_state bad_gate = good();\n'
+        '  bad_gate.gate_lo = 0;\n'
+        '  EXP(!kh_saved_state_ok(&bad_gate), "a zero gate_lo is not a captured gate");\n'
+        '  struct kh_saved_state not_valid = good();\n'
+        '  not_valid.valid = 0;\n'
+        '  EXP(!kh_saved_state_ok(&not_valid), "valid flag required");\n'
+        '  EXP(kh_restore_verified(&s, s.gate_lo, s.gate_hi, s.ist), "read-back matches");\n'
+        '  EXP(!kh_restore_verified(&s, s.gate_lo, s.gate_hi, s.ist + 1), "IST drift caught");\n'
+        '  EXP(!kh_restore_verified(&s, s.gate_lo ^ 1, s.gate_hi, s.ist), "gate drift caught");\n'
+        '  EXP(!kh_restore_verified(&none, 0, 0, 0), "unverifiable without saved state");\n'
+        '  EXP(kh_dr7_restored(&s, s.dr7), "DR7 back to its saved value");\n'
+        '  EXP(!kh_dr7_restored(&s, 0x400 | 1), "DR7 left configured is caught");\n'
+        '  printf(bad ? "BAD %d\\n" : "ok\\n", bad);\n'
+        '  return bad != 0; }\n')
+    exe = tmp / "restore_probe"
+    rc, out = run(["gcc", "-std=c11", "-I", str(ROOT / "include"), str(prog), "-o", str(exe)])
+    if rc != 0:
+        record("synth", "restore: planner and read-back", False,
+               f"compile failed: {out.strip()[:80]}")
+        return
+    rc, out = run([str(exe)])
+    bad = [l for l in out.splitlines() if l.startswith("BAD")]
+    record("synth", "restore: planner and read-back", rc == 0 and not bad,
+           "; ".join(bad) if bad else "15 assertions")
+
+    # The vendored khook must still restore gate+IST, and the payload must use the
+    # planner rather than trusting a single restore at the end.
+    khook = (ROOT / "source/byepervisor/khook.c").read_text()
+    record("synth", "restore: vendored kh_restore writes back gate and IST",
+           "kh->saved_gate_hi" in khook and "kh->saved_gate_lo" in khook
+           and "kh->saved_ist" in khook, "kh_restore() present")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -754,6 +822,7 @@ def main() -> int:
         synthetic_boot_data_tests(tmp)
         synthetic_frame_contract_tests(tmp)
         synthetic_ownership_tests(tmp)
+        synthetic_restore_tests(tmp)
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
