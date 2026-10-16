@@ -260,3 +260,42 @@ justify removing it.
 The remaining uncertainty is bounded: the kernel-side references listed above
 have static evidence, while the three HV references do not have a verified
 13.60 source image in the analyzed material.
+
+---
+
+## Round 5 (2026-10-16) — the three HV PAs and the local Recovery PUP: closed, with the exact container facts
+
+The Recovery PUP (`sha256 e210451f…aa97`) cannot supply an HV image. The facts below are recorded
+precisely so the question is not reopened by a different reading of the same file.
+
+* **Nested payload locations are `block_offset × 512`**, not the raw field: SLB2 entry table →
+  `PS5UPDATE1.PUP` @ `0x400` (size `0x4A5AE195`), `PS5UPDATE2.PUP` @ `0x4A5AE600`
+  (size `0x0962FAB5`). The inner PUP magic `0xEEF51454` occurs **exactly twice** in the whole
+  1.4 GB, at those two offsets, nowhere else.
+* **Only the 16-byte inner PUP file header is plaintext** (`headerSize 0x5b0`, `hashSize 0xde0`);
+  the extended header and every segment are encrypted, so there is **no readable segment table**
+  — hence no way to enumerate modules, let alone obtain an HV image.
+* `grep` for the ELF magic over the full 1.4 GB returns **zero** hits: no plaintext module of any
+  kind is stored in this container.
+* Guest side (Ghidra 12.1.4 via REA; 64 KiB slice of the capture mapped at its real VA):
+  `ktext + 0xC16A10` decodes as `push rbp; mov rbp,rsp; mov eax,4; vmmcall; pop rbp; ret` —
+  evidence `ev_a21ba545392eec92601b2192a43a7fbecb27ab3556647ab86cbab08b19052e7f`,
+  subject `k1360_sliceC1.elf` (sha256 `860d800c…324a`). The HV-side counterpart of that
+  instruction is exactly what `HV_VMMCALL_HANDLER_PA` names, and it is not in this image.
+* Public per-firmware HV tables stop at **7.61** (`HV_CODE_CAVE_PA = 0x62806F00`, constant across
+  the 21 tables; `HV_HANDLE_VMEXIT_PA` per firmware, `0x6283D800` for 7.0x–7.61). The only 13.x
+  HV PA published anywhere is the vendor repo's **13.20** `HV_VMMCALL_HANDLER_PA = 0x62847375`
+  (`pLinux5-NG/source/shellcode/hv_takeover/takeover.c`). Nothing for 13.60.
+
+Reproduce:
+
+```bash
+P=/home/emacorona/Downloads/PS5UPDATE.PUP
+python3 -c "import struct;h=open('$P','rb').read(0x80);print([(h[0x20+i*0x30+0x10:0x40+i*0x30].split(b'\0')[0], hex(struct.unpack_from('<I',h,0x20+i*0x30)[0]*512), hex(struct.unpack_from('<I',h,0x24+i*0x30)[0])) for i in (0,1)])"
+grep -abo $'\x54\x14\xf5\xee' "$P"                      # exactly two hits: 0x400, 0x4A5AE600
+grep -c -a $'\x7fELF' "$P"                              # 0
+python3 -c "d=open('/home/emacorona/src/ps5-dumps/k1360.bin','rb').read(0xCC0000);print(d.count(b'\x0f\x01\xd9'))"  # 37
+```
+
+> The *guest* wrapper is not evidence for any HV PA and must never be substituted for one; the
+> fail-closed guard on the takeover path stays.
