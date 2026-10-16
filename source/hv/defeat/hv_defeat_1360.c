@@ -875,10 +875,24 @@ static int install_resume_hook(uint64_t cave_addr, int redirect) {
 
   g_oracle = oracle;
   g_payload_va = payload_va;
+#if PL5_1360_INSTALL_NO_ARM
+  /* T5b: the installation happened, but nothing is armed -- so nothing may
+   * *claim* that it is. This function wrote the ARMED marker unconditionally,
+   * outside kh_install(), where no skip mask reaches it: measured on hardware
+   * (2026-10-16), T5b set 'KHOOKED.' while the #DB gate and the TSS IST slot were
+   * still pristine, and log line [R3] then claimed "this build never writes it".
+   * Two false statements in one run; both are fixed here. The saved gate/IST
+   * values below are data -- what was read before installing -- not a claim, so
+   * they are still written: the test is about the real installation. */
+  g_armed = 0;
+  g_redirected = 0;
+  notify("13.60: T5b: ARMED marker NOT written (install only); saved gate/IST kept as data\n");
+#else
   g_armed = 1;
   g_redirected = redirect;
 
   kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED);
+#endif
   kwrite64(cave_addr + CAVE_SAVE_OFF + 0x00, hook.saved_gate_lo);
   kwrite64(cave_addr + CAVE_SAVE_OFF + 0x08, hook.saved_gate_hi);
   kwrite64(cave_addr + CAVE_SAVE_OFF + 0x10, hook.saved_ist);
@@ -1169,8 +1183,14 @@ int hv_defeat_1360_report_resume(void) {
            (unsigned long)a, (unsigned long)e,
            (unsigned long)PDE_FIELD(e, XOTEXT), (unsigned long)PDE_FIELD(e, RW));
 
-  notify("13.60: [R3] cave ARMED marker = %#lx (this build never writes it)\n",
-         (unsigned long)kread64(cave_addr + CAVE_STATE_OFF));
+  {
+    /* Report what is there, not what we assumed: the marker is shared kernel
+     * memory that a previous boot, payload or crash may have left set. */
+    uint64_t marker = kread64(cave_addr + CAVE_STATE_OFF);
+    notify("13.60: [R3] cave marker = %#lx (%s)\n", (unsigned long)marker,
+           marker == STATE_ARMED ? "AN ARMED CLAIM IS PRESENT"
+                                 : "no ARMED claim (expected: this path never arms)");
+  }
   notify("13.60: [R4] report-only done: no hook armed, no takeover, no write.\n");
   return 0;
 }

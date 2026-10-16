@@ -406,6 +406,18 @@ def synthetic_make_flag_tests() -> None:
                 g = guard_stack(src1360, i)
                 if not any(n in c for c in g for n in needed):
                     bad.append(f"{call}@{i} guards={g}")
+    # The installation must not leave an ARMED claim: the marker write lives in
+    # install_resume_hook(), outside kh_install() where no skip mask reaches it.
+    # Measured on hardware: without this guard T5b set 'KHOOKED.' with the gate
+    # and the IST slot still pristine.
+    marker_lines = [i for i, l in enumerate(lines, start=1)
+                    if "kwrite64(cave_addr + CAVE_STATE_OFF, STATE_ARMED)" in l]
+    marker_guarded = bool(marker_lines) and all(
+        any("PL5_1360_INSTALL_NO_ARM" in c for c in guard_stack(src1360, i))
+        for i in marker_lines)
+    record("synth", "t5b: install writes no ARMED claim", marker_guarded,
+           f"STATE_ARMED writes at lines {marker_lines}")
+
     record("synth", "t5b: arming calls stay behind their arming guard", not bad,
            "; ".join(bad) if bad else f"{sum(1 for l in lines for c in arming_calls if c in l)} call sites checked")
 
