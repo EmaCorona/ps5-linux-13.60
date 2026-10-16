@@ -98,16 +98,31 @@ central observation.
 
 ## 4. Working hypothesis
 
-**The payload process does not continue after S3 on this setup.** Everything
-that runs *before* the sleep works; nothing after it does. Byepervisor's README
-explicitly says the payload "expects to continue running on resume from rest
-mode, and it relies on elfldr for this" — i.e. the loader must keep the payload
-resident across suspend. The loader in use here is the one shipped by
-ps5upload (TCP 9021), not necessarily the canonical `ps5-payload-dev/elfldr`
-the reference flow assumes.
+**Superseded (2026-10-16, round 5).** This section used to claim that "the
+payload process does not continue after S3 on this setup" and blamed the loader
+(the ps5upload one on 9021 rather than the canonical `ps5-payload-dev/elfldr`).
+Two independent checks refute that, and it contradicted the diag table further
+down this same document:
 
-Consequence: any design shaped as *escape → rest mode → post-resume dump/boot*
-cannot complete in this environment, no matter how correct the offsets are.
+* the diag table already records **`PL5_DIAG=5` (escape only, no khook):
+  standby + resume work and the payload continues** -- payload continuity across
+  S3 works here;
+* the loader on 9021 **is** the canonical elfldr. It answers
+  `[elfldr.elf] Error reading HTTP payload`, byte-for-byte the string at
+  `0x145ef4` of the official `elfldr-ps5.elf` (sha256 `ed6d587a057c09d6...`),
+  and its bootstrap resolves `SceRedisServer` and ptrace-attaches into it
+  (REA `ev_fe55c7fb...`, strings `ev_25861daf...`/`ev_a908710c...`).
+
+What actually fails is narrower and already measured: the **armed khook is
+fatal**. `PL5_DIAG=1` (escape + armed khook, no redirect) powers the console off
+~5 s after arming, *before* standby is even requested; `PL5_DIAG=0` (legacy
+event-flag rest path) returns but the payload does not continue; only the
+official `sceSystemStateMgrEnterStandby()` path gives payload continuity.
+
+So the design *escape -> rest mode -> post-resume work* is **not** excluded by
+this environment, and the offsets are not the blocker either. The blocker is the
+hook's live state across the suspend/resume cycle -- exactly what the P4 /
+diag17-19 arm-late work targets.
 
 ## 5. Still missing for phase B (Linux boot)
 
