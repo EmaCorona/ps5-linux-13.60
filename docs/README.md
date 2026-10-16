@@ -46,3 +46,8 @@ The three blockers that currently define the 13.60 work, in one line each:
 
 The verifiers and their host test suite are described in [`../tests/README.md`](../tests/README.md).
 They run without the PS5 SDK and without a console.
+
+`tools/check_payload_static.py` checks a **built** payload — ELF identity, the manifest version, that
+phase B is compiled out, that the generated blobs are the ones embedded, and that the takeover blob's
+firmware is one we have provenance for. The CI build job runs it and publishes its report next to the
+artifact.

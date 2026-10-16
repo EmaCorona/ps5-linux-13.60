@@ -306,6 +306,49 @@ def synthetic_make_flag_tests() -> None:
            "stamp wired into an OBJS rule")
 
 
+def package_lane_tests(tmp: Path) -> None:
+    """Checks on a *built* payload ELF: opt-in (PL5_TEST_ELF=1).
+
+    The default suite must not depend on a payload build (it needs the PS5 SDK),
+    so this lane is separate; the CI build job runs the checker for real.
+    """
+    name = "payload: built ELF passes the static checks"
+    if os.environ.get("PL5_TEST_ELF") != "1":
+        for n in (name,
+                  "payload: truncated file is refused (exit 2)",
+                  "payload: missing version string is caught (exit 1)",
+                  "payload: unknown takeover firmware is refused (exit 2)"):
+            record("package", n, False, "SKIP: set PL5_TEST_ELF=1 (needs a built payload)")
+        return
+
+    tool = TOOLS / "check_payload_static.py"
+    elf = ROOT / "bin/pLinux5-NG.elf"
+    if not elf.is_file():
+        record("package", name, False, f"SKIP: {elf} not built")
+        return
+
+    rc, out = run([sys.executable, str(tool)])
+    record("package", name, rc == 0, f"exit {rc}")
+
+    truncated = tmp / "truncated.elf"
+    truncated.write_bytes(elf.read_bytes()[:32])
+    rc, _ = run([sys.executable, str(tool), "--elf", str(truncated)])
+    record("package", "payload: truncated file is refused (exit 2)", rc == 2, f"exit {rc}")
+
+    # Blank the version string: the ELF is still an ELF, but it is not the
+    # artifact this tree claims to build.
+    data = elf.read_bytes().replace(b"0.1.0\x00", b"9.9.9\x00")
+    mutated = tmp / "wrong-version.elf"
+    mutated.write_bytes(data)
+    rc, out = run([sys.executable, str(tool), "--elf", str(mutated)])
+    record("package", "payload: missing version string is caught (exit 1)",
+           rc == 1 and "version" in out, f"exit {rc}")
+
+    rc, _ = run([sys.executable, str(tool), "--takeover-fw", "1360", "--takeover", "1"])
+    record("package", "payload: unknown takeover firmware is refused (exit 2)",
+           rc == 2, f"exit {rc}")
+
+
 def main() -> int:
     print(f"py={sys.executable}  capstone_py={python_with_capstone()}  repo={ROOT}\n")
     with tempfile.TemporaryDirectory(prefix="pl5-tests-") as td:
@@ -313,15 +356,21 @@ def main() -> int:
         synthetic_off_1360_tests(tmp)
         synthetic_dump_input_tests(tmp, python_with_capstone())
         synthetic_takeover_tests()
+        # Package lane before the make lane: the make lane deliberately rebuilds
+        # and then cleans source/shellcode/hv, which would leave the tree without
+        # the blob the payload check expects.
+        package_lane_tests(tmp)
         synthetic_make_flag_tests()
         real_capture_tests(tmp, python_with_capstone())
 
     synth = [r for r in results if r[0] == "synth"]
     real = [r for r in results if r[0] == "real"]
+    pack = [r for r in results if r[0] == "package"]
     failed = [r for r in results if not r[2] and "SKIP" not in r[3]]
     skipped = [r for r in results if not r[2] and "SKIP" in r[3]]
     print(f"\nsummary: synthetic {sum(1 for r in synth if r[2])}/{len(synth)} passed; "
           f"real {sum(1 for r in real if r[2])}/{len(real)} passed; "
+          f"package {sum(1 for r in pack if r[2])}/{len(pack)} passed; "
           f"{len(skipped)} skipped")
     for lane, name, _, note in results:
         if not results_ok(lane, name):

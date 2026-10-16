@@ -90,6 +90,13 @@ jobs:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
           LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
 
+      - name: Static checks on the built payload
+        # Packaging checks on the artifact itself: ELF identity, manifest version,
+        # phase B absent, embedded blobs, takeover-firmware provenance. Emits the
+        # report that is published with the artifact.
+        run: |
+          python3 tools/check_payload_static.py --takeover 0 --report bin/static-report.txt
+
       - name: Generate checksum
         run: sha256sum bin/pLinux5-NG.elf > bin/pLinux5-NG.elf.sha256
 
@@ -100,6 +107,7 @@ jobs:
           path: |
             bin/pLinux5-NG.elf
             bin/pLinux5-NG.elf.sha256
+            bin/static-report.txt
           if-no-files-found: error
           retention-days: 30
 

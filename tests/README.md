@@ -44,6 +44,11 @@ of the function; it is reported as such.
 
 [`../.github/workflows/verify.yml`](../.github/workflows/verify.yml) runs the
 synthetic lane plus the structure/takeover checks on push and pull request to
-this branch. It never runs the `real` lane. See
+this branch. It never runs the `real` lane.
+
+The build workflow additionally runs `tools/check_payload_static.py` on the
+freshly built ELF and publishes `bin/static-report.txt` with the artifact. The
+same checker has a `package` lane here, opt-in with `PL5_TEST_ELF=1` because it
+needs a built payload. See
 [`../docs/BASELINE_1360.md`](../docs/BASELINE_1360.md) for the verifier results
 recorded before these tests existed.
