@@ -28,6 +28,8 @@ The three blockers that currently define the 13.60 work, in one line each:
 | [`OFFSETS-REGISTRY.md`](OFFSETS-REGISTRY.md) | the typed registry: namespace, evidence class and provenance per offset field, and the checks that enforce them | you are about to use an address, or doubt one |
 | [`BOOT-REQUIREMENTS-1360.md`](BOOT-REQUIREMENTS-1360.md) | per unresolved field, the call site and what its absence actually blocks | a zero looks like a blocker, or you are about to fill one |
 | [`LIVE-READ-POLICY.md`](LIVE-READ-POLICY.md) | what a live payload may read, where the decision lives, and why `.text` on 13.60 is refused unconditionally | you are touching a live-read tool, or reading an old "next step" |
+| [`1360-khook-design.md`](1360-khook-design.md) | the armed `#DB` hook: invariants, state model, foreign-trap handling, and the static gate before the next console session | you are about to arm the hook |
+| [`1360-post-resume-contract.md`](1360-post-resume-contract.md) | who owns control before/during/after standby, and why nothing may depend on a live payload process | you are touching the resume path or planning a sleep test |
 | [`1360-port-status.md`](1360-port-status.md) | chronological record of the 13.60 work: what was tried, what the console did, what was concluded | you want the full history, including the dead ends |
 | [`1360-offsets-from-dump.md`](1360-offsets-from-dump.md) | how the 13.60 offsets were derived from a verified kernel capture and validated against the live console | you doubt a value in `off_1360.c` |
 | [`1360-khook-death.md`](1360-khook-death.md) | why the armed khook kills this console: signature, single-variable bisection, mechanism | you are touching the escape or the khook |
