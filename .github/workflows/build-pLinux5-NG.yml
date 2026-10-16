@@ -97,6 +97,25 @@ jobs:
         run: |
           python3 tools/check_payload_static.py --takeover 0 --report bin/static-report.txt
 
+      - name: Phase B cannot be enabled
+        # Fail-closed check: with the HV reference still unknown, every attempt to
+        # build phase B must be refused by a compile-time guard.
+        run: |
+          for extra in "PL5_1360_TAKEOVER=1" "PL5_1360_TAKEOVER=1 PL5_TAKEOVER_FW=1360"; do
+            if make -B $extra > /tmp/phase-b.log 2>&1; then
+              echo "::error::phase B build with '$extra' succeeded; it must be refused"
+              tail -5 /tmp/phase-b.log
+              exit 1
+            fi
+            grep -qE '#error|error:' /tmp/phase-b.log || {
+              echo "::error::phase B build with '$extra' failed without a guard message"
+              tail -5 /tmp/phase-b.log
+              exit 1
+            }
+            echo "refused as expected: $extra"
+          done
+          make clean >/dev/null && make -j"$(nproc)"
+
       - name: Generate checksum
         run: sha256sum bin/pLinux5-NG.elf > bin/pLinux5-NG.elf.sha256
 

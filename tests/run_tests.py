@@ -323,6 +323,13 @@ def package_lane_tests(tmp: Path) -> None:
 
     tool = TOOLS / "check_payload_static.py"
     elf = ROOT / "bin/pLinux5-NG.elf"
+    # Bring the tree to a consistent default build first: the make lane below
+    # deliberately cleans source/shellcode/hv, so a leftover tree would make the
+    # payload check fail for the wrong reason.
+    rc, out = run(["make", "-j4"], cwd=ROOT)
+    if rc != 0:
+        record("package", name, False, f"SKIP: default build failed (exit {rc})")
+        return
     if not elf.is_file():
         record("package", name, False, f"SKIP: {elf} not built")
         return
@@ -347,6 +354,23 @@ def package_lane_tests(tmp: Path) -> None:
     rc, _ = run([sys.executable, str(tool), "--takeover-fw", "1360", "--takeover", "1"])
     record("package", "payload: unknown takeover firmware is refused (exit 2)",
            rc == 2, f"exit {rc}")
+
+    # Phase B must be impossible to enable while its HV reference is a
+    # placeholder, in every configuration we can name.
+    if not os.environ.get("PS5_PAYLOAD_SDK", ""):
+        record("package", "phase B: PL5_1360_TAKEOVER=1 refused",
+               False, "SKIP: PS5_PAYLOAD_SDK not set")
+        record("package", "phase B: foreign blob on a 1360 build refused",
+               False, "SKIP: PS5_PAYLOAD_SDK not set")
+        return
+    for name, extra in (("phase B: PL5_1360_TAKEOVER=1 refused",
+                         ["PL5_1360_TAKEOVER=1"]),
+                        ("phase B: foreign blob on a 1360 build refused",
+                         ["PL5_1360_TAKEOVER=1", "PL5_TAKEOVER_FW=1360"])):
+        rc, out = run(["make", "-B", *extra], cwd=ROOT)
+        refused = rc != 0 and ("#error" in out or "error:" in out)
+        record("package", name, refused,
+               f"exit {rc}" if refused else "build did NOT fail")
 
 
 def synthetic_registry_tests(tmp: Path) -> None:
